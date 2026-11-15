@@ -63,7 +63,8 @@ h2.cap{margin:32px 4px 8px}
 /* týden */
 .weekhead{display:flex;align-items:center;justify-content:space-between;margin:0 -8px}
 .week{display:grid;grid-template-columns:repeat(7,1fr);margin:4px 0 8px}
-.wd{display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 0;min-height:76px}
+.wd{display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 0;min-height:76px;position:relative}
+.wd .mod{position:absolute;top:0;left:50%;width:10px;height:2px;margin-left:-5px;border-radius:1px;background:var(--tx2)}
 .wd .n{font-size:13px;font-weight:500;color:var(--tx2)}
 .wd .d{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:600}
 .wd.today .d{color:var(--acc)}
@@ -190,6 +191,10 @@ const fmtDur = ms => { const s = Math.max(0, Math.round(ms / 1000)); const h = M
 const fmtSec = s => s >= 60 ? (s % 60 ? Math.floor(s / 60) + ' min ' + (s % 60) + ' s' : (s / 60) + ' min') : s + ' s';
 const fmtDate = k => { const d = parseKey(k); return d.getDate() + '. ' + (d.getMonth() + 1) + '.'; };
 const today = () => dkey(new Date());
+// délka tréninku bez přestávek mezi částmi (návrat k uloženému tréninku)
+const wDur = (w, end) => Math.max(0, (end || w.end || Date.now()) - w.start - (w.breakMs || 0));
+// k uloženému tréninku se lze vrátit jen v jeho kalendářní den, dokud nejsou splněné všechny cviky (i „Vyzkoušet“)
+const canResume = w => !S.active && w.date === today() && w.ex.some(y => y.sets.length < y.plan.sets);
 const pl = (n, one, few, many) => n + ' ' + (n === 1 ? one : n >= 2 && n <= 4 ? few : many);
 
 /* ---------- ikony (jedna sada, tah 2 px) ---------- */
@@ -205,6 +210,7 @@ const P_ = {
   pause: '<path d="M9 5v14M15 5v14"/>', play: '<path d="M7 5l12 7-12 7z" fill="currentColor"/>',
   skip: '<path d="M6 5l9 7-9 7zM18 5v14"/>',
   up: '<path d="M6 15l6-6 6 6"/>', down: '<path d="M6 9l6 6 6-6"/>',
+  swap: '<path d="M7 4L3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/>',
   moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
 };
 const I = (n, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${P_[n]}</svg>`;
@@ -283,12 +289,13 @@ function defaultState() {
       [tpl('silovy')],
       [tpl('silovy')],
     ],
-    days: {},          // 'YYYY-MM-DD': { manual: 'done'|'missed'|'off', done: {itemId:true}, partial: {...}, items: [...] }
+    days: {},          // 'YYYY-MM-DD': { done: {itemId:true}, partial: {...}, items: [...], reason, reasonNote, reasonSkip; manual = jen starší data }
     workouts: [],      // dokončené tréninky (snímek sestavy + skutečnost + pocit/poznámka)
     metrics: defaultMetrics(),
+    supps: [],         // suplementy: { id, name, dose, unit: 'g'|'ks', when: 'daily'|'train', note, from, to }
     measures: [],      // { id, date, metric, value, session? }
     active: null,      // rozběhnutý trénink
-    settings: { sound: true, lastBackup: null, hideInstall: false },
+    settings: { sound: true, lastBackup: null, hideInstall: false, since: today() },
   };
 }
 
@@ -331,9 +338,14 @@ function okEx(e) {
     && optNum(e.warn1) && optNum(e.warn2) && (e.parked == null || typeof e.parked === 'boolean')
     && (e.videos == null || (isArr(e.videos) && e.videos.length <= 10 && e.videos.every(okUrl)));
 }
+function okSupp(x) {
+  return isObj(x) && okId(x.id) && typeof x.name === 'string' && isNum(x.dose) && x.dose >= 0 && (x.unit === 'g' || x.unit === 'ks')
+    && (x.when === 'daily' || x.when === 'train') && optStr(x.note) && okDate(x.from) && (x.to == null || okDate(x.to));
+}
 function okDay(day) {
-  return isArr(day) && day.every(i => isObj(i) && okId(i.id) && optNum(i.mins)
-    && (i.kind === 'check' ? typeof i.name === 'string' : i.kind === 'tpl' && okId(i.tplId)));
+  return isArr(day) && day.every(i => isObj(i) && okId(i.id) && optNum(i.mins) && optNum(i.km) && optStr(i.note)
+    && (i.kind === 'check' ? typeof i.name === 'string' : i.kind === 'ex' ? okEx(i.ex) : i.kind === 'tpl' && okId(i.tplId))
+    && (i.added == null || typeof i.added === 'boolean') && (i.from == null || okDate(i.from)) && optStr(i.instead));
 }
 function okPend(p) {
   if (p == null) return true;
@@ -359,11 +371,15 @@ function validState(d) {
       if (!okDate(k) || !isObj(r)) return false;
       for (const f of ['done', 'partial']) if (r[f] != null && (!isObj(r[f]) || !Object.keys(r[f]).every(okId))) return false;
       if (r.manual != null && !['done', 'missed', 'off'].includes(r.manual)) return false;
+      if ((r.custom != null && typeof r.custom !== 'boolean') || (r.swapWith != null && !okDate(r.swapWith))) return false;
+      if (r.supps != null && (!isObj(r.supps) || !Object.entries(r.supps).every(([id, x]) => okId(id) && isObj(x) && typeof x.taken === 'boolean' && isNum(x.dose) && x.dose >= 0 && (x.unit === 'g' || x.unit === 'ks') && typeof x.name === 'string'))) return false;
+      if ((r.reason != null && !['nemoc', 'osobni', 'prace', 'jine'].includes(r.reason)) || !optStr(r.reasonNote) || (r.reasonSkip != null && typeof r.reasonSkip !== 'boolean')) return false;
       if (r.items != null && !okDay(r.items)) return false;
     }
     if (!isArr(d.workouts) || !d.workouts.every(w => isObj(w) && okId(w.id) && okId(w.tplId) && (w.itemId == null || okId(w.itemId))
-      && okDate(w.date) && isNum(w.start) && isNum(w.end) && isArr(w.ex) && w.ex.every(okWEx)
+      && okDate(w.date) && isNum(w.start) && isNum(w.end) && (w.breakMs == null || (isNum(w.breakMs) && w.breakMs >= 0 && w.breakMs <= w.end - w.start)) && isArr(w.ex) && w.ex.every(okWEx)
       && okFeel(w.feel) && optStr(w.note) && optStr(w.tplName))) return false;
+    if (d.supps != null && !(isArr(d.supps) && d.supps.every(okSupp))) return false;
     if (d.metrics != null && !(isArr(d.metrics) && d.metrics.every(m => isObj(m) && okId(m.key) && typeof m.name === 'string' && optStr(m.unit)))) return false;
     if (d.measures != null && !(isArr(d.measures) && d.measures.every(m => isObj(m) && okId(m.id) && okId(m.metric) && okDate(m.date) && isNum(m.value) && (m.session == null || okId(m.session))))) return false;
     if (d.active != null) {
@@ -372,6 +388,7 @@ function validState(d) {
       if (!Number.isInteger(a.i) || a.i < 0 || a.i >= a.w.ex.length || !isObj(a.cur) || !optNum(a.cur.reps) || !optNum(a.cur.load) || !optNum(a.curSince)) return false;
       if (!['ready', 'work', 'rest', 'switch', 'end'].includes(a.phase)) return false;
       if (a.restNext != null && typeof a.restNext !== 'boolean') return false;
+      if ((a.resumed != null && typeof a.resumed !== 'boolean') || !(a.w.breakMs == null || (isNum(a.w.breakMs) && a.w.breakMs >= 0))) return false;
       if (![a.deadline, a.left, a.readyAt, a.setStart, a.endedAt].every(optNum) || !(a.side === 0 || a.side === 1 || a.side == null)) return false;
       // běžící fáze musí mít termín, nebo být pozastavená se zbývajícím časem
       const kind = a.w.ex[a.i].plan.kind;
@@ -386,10 +403,12 @@ function validState(d) {
 }
 function normalize(d) {
   if (!d.templates.some(t => t.id === TRIAL)) d.templates.push(trialTpl());
-  d.days = d.days || {}; d.metrics = d.metrics || defaultMetrics(); d.measures = d.measures || [];
+  d.days = d.days || {}; d.metrics = d.metrics || defaultMetrics(); d.measures = d.measures || []; d.supps = d.supps || [];
   d.settings = Object.assign({ sound: true, lastBackup: null, hideInstall: false }, d.settings || {});
-  delete d.settings.autoNext; delete d.settings.autoStart; // nic se nespouští samo (rozhodnutí Terezy)
+  // settings.autoNext / autoStart ze starších verzí se ponechávají, ale nepoužívají — nic se nespouští samo (rozhodnutí Terezy)
   if (d.active === undefined) d.active = null;
+  // začátek používání: dřívější dny se nepočítají jako nesplněné
+  if (!okDate(d.settings.since)) { const ks = Object.keys(d.days).concat(d.workouts.map(w => w.date)).filter(okDate).sort(); d.settings.since = ks[0] && ks[0] < today() ? ks[0] : today(); }
   return d;
 }
 let saveFailed = false;
@@ -421,15 +440,73 @@ window.addEventListener('storage', e => {
 });
 
 const tplById = id => S.templates.find(t => t.id === id);
-const itemLabel = it => it.kind === 'tpl' ? (tplById(it.tplId)?.name || 'Smazaná sestava') : it.name;
+const itemLabel = it => it.kind === 'tpl' ? (tplById(it.tplId)?.name || 'Smazaná sestava') : it.kind === 'ex' ? it.ex.name : it.name;
 
 /* ---------- stav dne ---------- */
 // Den si při prvním záznamu uloží svůj rozvrh; minulé dny se pak počítají z něj,
 // takže pozdější změna týdenního rozvrhu nepřepíše historii.
 const weekCopy = k => JSON.parse(JSON.stringify(S.week[wIdx(parseKey(k))] || []));
-function dayRec(k) { const r = S.days[k] || (S.days[k] = { done: {} }); if (!r.items || k >= today()) r.items = weekCopy(k); return r; }
-function refreshSnapshots() { const t = today(); for (const k of Object.keys(S.days)) if (k >= t) S.days[k].items = weekCopy(k); }
-function dayItems(k) { const r = S.days[k]; return r && r.items && k < today() ? r.items : (S.week[wIdx(parseKey(k))] || []); }
+function dayRec(k) { const r = S.days[k] || (S.days[k] = { done: {} }); if (!r.items || (k >= today() && !r.custom)) r.items = weekCopy(k); return r; }
+// Každý den od začátku používání (včetně dneška) si uloží svůj rozvrh, ať pozdější změna rozvrhu nepřepíše minulost
+function freezePast() {
+  const t = today(); let k = S.settings.since || t, g = 0;
+  for (; k <= t && g < 40000; k = dkey(addDays(parseKey(k), 1)), g++) { const r = S.days[k]; if (!r) S.days[k] = { done: {}, items: weekCopy(k) }; else if (!r.items) r.items = weekCopy(k); }
+}
+function refreshSnapshots() { const t = today(); for (const k of Object.keys(S.days)) if (k >= t && !S.days[k].custom) S.days[k].items = weekCopy(k); }
+function dayItems(k) { const r = S.days[k]; return r && r.items && (k < today() || r.custom) ? r.items : (S.week[wIdx(parseKey(k))] || []); }
+/* ---------- úprava jednoho dne (jen dnes a dopředu; týdenní rozvrh se nemění) ---------- */
+const editable = k => k >= today();
+// položka s odcvičeným / rozpracovaným záznamem nebo běžícím tréninkem se nemění
+const locked = (k, it) => { const r = S.days[k] || {}; return !!((r.done || {})[it.id] || (r.partial || {})[it.id] || S.workouts.some(w => w.date === k && w.itemId === it.id) || (S.active && S.active.w.date === k && S.active.w.itemId === it.id)); };
+function setDay(k, items) { const r = dayRec(k); r.items = items; r.custom = true; }
+function fmtDayShort(k) { const d = parseKey(k); return DNY[wIdx(d)] + ' ' + d.getDate() + '. ' + (d.getMonth() + 1) + '.'; }
+const itemsTxt = its => its.length ? its.map(itemLabel).join(', ') : 'volno';
+function allExercises() { const m = new Map(); for (const t of S.templates) for (const e of t.items) if (!m.has(e.id)) m.set(e.id, e); return [...m.values()].sort((p, q) => p.name.localeCompare(q.name, 'cs')); }
+function sheetEditDay(k) {
+  const d = parseKey(k), r = S.days[k] || {}, items = dayItems(k);
+  let h = sheetHead('Upravit ' + DNY_DLOUHE[wIdx(d)].toLowerCase() + ' ' + d.getDate() + '. ' + (d.getMonth() + 1) + '.', ['closeSheet', 'Hotovo']) + `<div class="foot" style="margin:0 4px 12px">Změna platí jen pro tento den.</div><div class="surf list">`;
+  if (!items.length) h += '<div class="row foot">Den bude volno.</div>';
+  for (const it of items) {
+    const lk = locked(k, it), sub = [it.kind === 'ex' ? exSummary(it.ex) : it.kind === 'tpl' ? 'klepni pro výměnu za jinou sestavu' : actTxt(it) || 'klepni pro úpravu', itemSub(it), it.optional ? 'volitelně' : ''].filter(Boolean).join(' · ');
+    const body = `<span class="head" style="display:block">${esc(itemLabel(it))}</span><span class="foot">${lk ? 'odcvičeno' : sub}</span>`;
+    const act = it.kind === 'tpl' ? 'dReplace' : it.kind === 'check' ? 'dEditCheck' : '';
+    h += `<div class="row">${act && !lk ? `<button class="grow" data-a="${act}" data-v="${k}:${it.id}" style="text-align:left">${body}</button>` : `<span class="grow">${body}</span>`}
+      ${lk ? '' : `<button class="ib" data-a="dDel" data-v="${k}:${it.id}" aria-label="Odebrat">${I('x')}</button>`}</div>`;
+  }
+  h += `<button class="row acc" data-a="dAdd" data-v="${k}">${I('plus')}<span class="head">Přidat</span></button></div>`;
+  h += `<div class="surf list" style="margin-top:16px"><button class="row" data-a="dSwap" data-v="${k}"><span class="grow head">Prohodit s jiným dnem</span>${I('r', 'chev')}</button></div>`;
+  if (r.custom) { const sw = r.swapWith && (S.days[r.swapWith] || {}).swapWith === k && editable(r.swapWith) ? r.swapWith : null;
+    h += `<div style="text-align:center;margin-top:16px"><button class="b3" data-a="dReset" data-v="${k}">Vrátit původní plán</button>${sw ? `<div class="foot">Vrátí i ${DNY_DLOUHE[wIdx(parseKey(sw))].toLowerCase()} ${fmtDate(sw)}</div>` : ''}</div>`; }
+  sheet(h);
+}
+// popisek mimořádné položky: navíc / z jiného dne / místo jiné sestavy
+// aktivita bez průvodce (běh, MMA, plavání…): název, délka, vzdálenost, poznámka
+const actTxt = it => [isNum(it.mins) ? it.mins + ' min' : '', isNum(it.km) ? fmtNum(it.km) + ' km' : '', it.note ? esc(it.note) : ''].filter(Boolean).join(' · ');
+const actForm = (it = {}, withOpt = false) => `<label class="fld"><span>Název</span><input class="inp" id="aName" maxlength="40" placeholder="např. Běh, MMA s trenérem, Plavání" value="${esc(it.name || '')}"></label>
+  <div style="display:flex;gap:8px"><label class="fld" style="flex:1"><span>Délka (min)</span><input class="inp" id="aMins" type="number" inputmode="numeric" value="${isNum(it.mins) ? it.mins : ''}"></label><label class="fld" style="flex:1"><span>Vzdálenost (km)</span><input class="inp" id="aKm" type="text" inputmode="decimal" value="${isNum(it.km) ? fmtNum(it.km) : ''}"></label></div>
+  <label class="fld"><span>Poznámka (nepovinné)</span><input class="inp" id="aNote" maxlength="60" placeholder="např. lehké tempo" value="${esc(it.note || '')}"></label>
+  ${withOpt ? `<div class="surf" style="margin-top:12px"><label class="row tgl"><span class="grow">Volitelné</span><input type="checkbox" switch id="dOpt" ${it.optional ? 'checked' : ''}></label></div>` : ''}`;
+// přečte formulář; null = chyba (toast)
+function readAct() {
+  const name = $('#aName').value.trim().slice(0, 40); if (!name) { toast('Napiš název'); return null; }
+  const m = parseInt($('#aMins').value, 10), km = parseFloat(String($('#aKm').value).replace(',', '.')), note = $('#aNote').value.trim().slice(0, 60);
+  const o = { name }; o.mins = m > 0 && m < 1000 ? m : undefined; o.km = km > 0 && km < 1000 ? Math.round(km * 100) / 100 : undefined; o.note = note || undefined;
+  return o;
+}
+const itemSub = it => [it.added ? 'navíc' : '', it.from ? 'z ' + fmtDayShort(it.from) : '', it.instead ? 'místo ' + esc(it.instead) : ''].filter(Boolean).join(' · ');
+function sheetTplDetail(k, itemId) {
+  const it = dayItems(k).find(i => i.id === itemId); if (!it) return;
+  const t = tplById(it.tplId); const list = it.kind === 'ex' ? [it.ex] : t ? t.items : [];
+  let h = sheetHead(esc(itemLabel(it)), ['closeSheet', 'Zavřít']) + `<div class="foot" style="margin:0 4px 12px">${fmtDayShort(k)}${itemSub(it) ? ' · ' + itemSub(it) : ''}</div><div class="surf list">`;
+  h += list.map(e => `<div class="row"><span class="grow head">${esc(e.name)}</span><span class="foot num">${exSummary(e)}</span></div>`).join('') || '<div class="row foot">Sestava je prázdná</div>';
+  h += '</div>';
+  const rw = S.workouts.filter(w => w.date === k && w.itemId === it.id).slice(-1)[0];
+  if (k === today() && rw && canResume(rw)) h += `<button class="btn b1" style="margin-top:16px" data-a="resumeW" data-v="${rw.id}">${I('play')} Pokračovat</button>`;
+  else if (k === today() && !S.active && !rw && !(S.days[k]?.done || {})[it.id]) h += `<button class="btn b1" style="margin-top:16px" data-a="start" data-v="${it.id}">${I('play')} Začít</button>`;
+  if (editable(k)) h += `<div style="text-align:center;margin-top:12px"><button class="b3" data-a="dEdit" data-v="${k}">Upravit trénink</button></div>`;
+  h += `<div class="foot tx3" style="margin:12px 4px 0;text-align:center">Sestavu natrvalo změníš v Plán → Sestavy.</div>`;
+  sheet(h);
+}
 function dayStatus(k) {
   const r = S.days[k] || {}; const items = dayItems(k);
   if (r.manual) return r.manual;
@@ -438,11 +515,52 @@ function dayStatus(k) {
   const nDone = items.filter(i => done[i.id]).length;
   if (!items.length) return 'rest';
   if (req.length && req.every(i => done[i.id])) return 'done';
-  if (!req.length) return nDone ? 'done' : 'rest';
+  if (!req.length) return nDone ? 'done' : Object.keys(r.partial || {}).length ? 'partial' : 'rest';
   if (nDone || Object.keys(r.partial || {}).length) return 'partial';
-  return 'plan';
+  if (k < today() && k >= S.settings.since) return r.reason === 'nemoc' ? 'off' : 'missed'; // minulý plán bez tréninku = nesplněno
+  return k < today() ? 'none' : 'plan';
 }
-const statusText = { done: 'splněno', missed: 'nesplněno', partial: 'rozpracováno', rest: 'volno', plan: 'naplánováno', off: 'nemoc / volno' };
+/* ---------- suplementy ---------- */
+// které suplementy platí pro den k (od přidání do odebrání; „tréninkové dny“ = den s plánem v rozvrhu)
+function suppsFor(k) {
+  const rec = (S.days[k] || {}).supps || {};
+  return S.supps.filter(x => rec[x.id] || (x.from <= k && (!x.to || k < x.to) && (x.when === 'daily' || dayItems(k).some(i => !i.optional))));
+}
+const doseTxt = (dose, unit) => fmtNum(dose) + (unit === 'g' ? ' g' : ' ks');
+// záznam dne: skutečná dávka se ukládá ke dni, výchozí dávka v Plánu se nemění
+function suppRec(k, x) { const r = dayRec(k); r.supps = r.supps || {}; return r.supps[x.id] || (r.supps[x.id] = { taken: false, dose: x.dose, unit: x.unit, name: x.name }); }
+function suppCard(k) {
+  const list = suppsFor(k); if (!list.length || k > today()) return '';
+  const rec = (S.days[k] || {}).supps || {};
+  const n = list.filter(x => rec[x.id] && rec[x.id].taken).length;
+  let h = `<div class="between" style="margin:20px 4px 6px"><h2 class="cap" style="margin:0">Suplementy</h2><span class="foot num">${n} / ${list.length}</span></div><div class="surf list">`;
+  for (const x of list) {
+    const r = rec[x.id], on = !!(r && r.taken), dose = r ? r.dose : x.dose, unit = r ? r.unit : x.unit;
+    h += `<div class="row"><button class="check ${on ? 'on' : ''}" data-a="suppTick" data-v="${k}:${x.id}" aria-label="${on ? 'Zrušit' : 'Vzato'}">${on ? I('check') : ''}</button><button class="grow" data-a="suppTick" data-v="${k}:${x.id}" style="text-align:left"><span class="head" style="display:block">${esc(r ? r.name : x.name)}</span>${x.note ? `<span class="foot">${esc(x.note)}</span>` : ''}</button><button class="b3 num" data-a="suppDose" data-v="${k}:${x.id}" style="padding-right:0;${r && dose !== x.dose ? 'color:var(--acc)' : ''}" aria-label="Upravit dnešní dávku">${doseTxt(dose, unit)}</button></div>`;
+  }
+  return h + '</div>';
+}
+const statusText = { done: 'splněno', missed: 'nesplněno', partial: 'rozpracováno', rest: 'volno', plan: 'naplánováno', off: 'nemoc', none: 'před začátkem používání' };
+// důvod nesplnění (ptá se appka den poté)
+const REASONS = { nemoc: 'Nemoc', osobni: 'Osobní důvody', prace: 'Práce', jine: 'Jiné' };
+const reasonTxt = r => r && r.reason ? (r.reason === 'jine' && r.reasonNote ? r.reasonNote : REASONS[r.reason]) : '';
+function pendingReason() {
+  // nejstarší nesplněný den za posledních 7 dní bez důvodu (a bez „Teď ne“)
+  for (let i = 7; i >= 1; i--) {
+    const k = dkey(addDays(new Date(), -i)); if (k < S.settings.since) continue;
+    const r = S.days[k] || {};
+    if (dayStatus(k) === 'missed' && !r.reason && !r.reasonSkip) return k;
+  }
+  return null;
+}
+function sheetReason(k, other) {
+  const d = parseKey(k), names = dayItems(k).filter(i => !i.optional).map(itemLabel).join(', ');
+  let h = sheetHead('Proč se necvičilo?', ['reasonLater', 'Teď ne']) + `<div class="foot" style="margin:4px 4px 16px">${DNY_DLOUHE[wIdx(d)]} ${d.getDate()}. ${d.getMonth() + 1}. · ${esc(names)} — nesplněno</div>`;
+  if (other) h += `<input class="inp" id="rsNote" maxlength="80" placeholder="Napiš důvod" value="${esc((S.days[k] || {}).reasonNote || '')}"><button class="btn b1" style="margin-top:12px" data-a="reasonSave" data-v="${k}">Uložit</button>`;
+  else h += `<div class="surf list">${Object.entries(REASONS).map(([v, l]) => `<button class="row" data-a="${v === 'jine' ? 'reasonOther' : 'reasonSet'}" data-v="${k}:${v}"><span class="grow head">${l}</span>${I('r', 'chev')}</button>`).join('')}</div><div class="foot tx3" style="margin:12px 4px 0">„Teď ne“ = na zmeškané dny se už neptám, důvod doplníš klepnutím na den.</div>`;
+  sheet(h);
+}
+function askReason() { if (S.active || $('#sheet').innerHTML) return; const k = pendingReason(); if (k) sheetReason(k); }
 
 /* ---------- UI ---------- */
 let tab = 'den', selDay = today(), progEx = null;
@@ -458,6 +576,8 @@ function bannerHTML() {
   let h = '';
   if (saveFailed) h += `<div class="banner bad"><b>Data se nepodařilo uložit.</b> Uvolni místo v telefonu a udělej zálohu (Plán → Zálohovat).</div>`;
   if (loadProblem) h += `<div class="banner bad"><b>Uložená data nešla načíst.</b> Obnov je ze zálohy (Plán → Obnovit ze zálohy).</div>`;
+  const lb = S.settings.lastBackup;
+  if (!saveFailed && S.workouts.length >= 3 && (!lb || Date.now() - lb > 14 * 864e5)) h += `<div class="banner"><b>Zálohuj si data.</b> ${lb ? 'Poslední záloha je starší než 2 týdny.' : 'Zatím žádná záloha.'} <button class="b3" style="padding:0;min-height:36px" data-a="export">Zálohovat</button></div>`;
   if (!standalone() && !S.settings.hideInstall) h += `<div class="banner"><b>Přidej si appku na plochu.</b> Sdílet → Přidat na plochu. Data zadávej až v ikoně na ploše, Safari má svá vlastní. <button class="b3" style="padding:0;min-height:36px" data-a="hideInstall">Skrýt</button></div>`;
   return h;
 }
@@ -491,7 +611,7 @@ function viewDay() {
   h += '<div class="week">';
   for (let i = 0; i < 7; i++) {
     const d = addDays(mon, i), k = dkey(d), st = dayStatus(k);
-    h += `<button class="wd ${k === selDay ? 'sel' : ''} ${k === t ? 'today' : ''}" data-a="day" data-v="${k}" aria-label="${DNY_DLOUHE[i]} ${d.getDate()}. ${statusText[st]}"><span class="n">${DNY[i]}</span><span class="d num">${d.getDate()}</span><span class="dot ${st}"></span></button>`;
+    h += `<button class="wd ${k === selDay ? 'sel' : ''} ${k === t ? 'today' : ''}" data-a="day" data-v="${k}" aria-label="${DNY_DLOUHE[i]} ${d.getDate()}. ${statusText[st]}"><span class="n">${DNY[i]}</span><span class="d num">${d.getDate()}</span><span class="dot ${st}"></span>${(S.days[k] || {}).custom ? '<i class="mod"></i>' : ''}</button>`;
   }
   h += '</div>';
   const wr = weeksInRow();
@@ -500,40 +620,49 @@ function viewDay() {
   const st = dayStatus(selDay), r = S.days[selDay] || {};
   const items = dayItems(selDay);
   let firstTpl = null;
-  if (!items.length) h += '<div class="empty">Volný den</div>';
+  if (!items.length) h += `<div class="empty">Volný den${r.custom ? ' · upraveno' : ''}</div>`;
   else {
     h += '<div class="surf">';
     for (const it of items) {
       const done = !!(r.done || {})[it.id], part = !!(r.partial || {})[it.id];
-      if (it.kind === 'tpl') {
-        const tp = tplById(it.tplId);
+      if (it.kind === 'tpl' || it.kind === 'ex') {
+        const tp = it.kind === 'ex' ? { items: [it.ex] } : tplById(it.tplId);
         const w = S.workouts.filter(w => w.date === selDay && w.itemId === it.id).slice(-1)[0];
-        if (tp && !done && !firstTpl) firstTpl = it;
-        const sub = [tp ? tp.items.length + ' cviků' : '', it.optional ? 'volitelně' : '', w ? (done ? 'hotovo za ' : 'částečně, ') + fmtDur(w.end - w.start) : ''].filter(Boolean).join(' · ');
-        h += `<div class="row"><div class="grow"><div class="head">${esc(itemLabel(it))}</div><div class="foot">${sub}</div></div>
-          ${done ? `<span class="check on">${I('check')}</span>` : tp && (it !== firstTpl || S.active) ? `<button class="b3" data-a="start" data-v="${it.id}" style="padding-right:0">${w ? 'Znovu' : 'Začít'} ${I('r')}</button>` : ''}</div>`;
-        const lw = lastWorkoutFor(it.tplId, selDay);
+        if (tp && !done && !firstTpl && selDay === t) firstTpl = it; // trénink se zapisuje jen do dneška (podle skutečnosti)
+        const sub = [it.kind === 'ex' ? exSummary(it.ex) : tp ? tp.items.length + ' cviků' : '', itemSub(it), it.optional ? 'volitelně' : '', w ? (done ? 'hotovo za ' : 'částečně, ') + fmtDur(wDur(w)) : ''].filter(Boolean).join(' · ');
+        h += `<div class="row"><button class="grow" data-a="dDetail" data-v="${selDay}:${it.id}" style="text-align:left"><div class="head">${esc(itemLabel(it))}</div><div class="foot">${sub}</div></button>
+          ${w && canResume(w) && !done ? `<button class="b3" data-a="resumeW" data-v="${w.id}" style="padding-right:0">Pokračovat ${I('r')}</button>` : done ? `<span class="check on">${I('check')}</span>` : tp && selDay === t && (it !== firstTpl || S.active) ? `<button class="b3" data-a="start" data-v="${it.id}" style="padding-right:0">${w ? 'Znovu' : 'Začít'} ${I('r')}</button>` : ''}</div>`;
+        const lw = it.kind === 'tpl' && lastWorkoutFor(it.tplId, selDay);
         if (lw && lw.note && !done) h += `<div class="sub foot" style="padding:0 16px 12px;margin-top:-6px">Minule: „${esc(lw.note)}“</div>`;
       } else {
-        h += `<button class="row" data-a="tick" data-v="${it.id}"><span class="grow"><span class="head" style="display:block">${esc(it.name)}</span><span class="foot">${[isNum(it.mins) ? it.mins + ' min' : '', it.optional ? 'volitelně' : ''].filter(Boolean).join(' · ') || 'klepni, až bude hotovo'}</span></span><span class="check ${done ? 'on' : ''}">${done ? I('check') : ''}</span></button>`;
+        const sub = [actTxt(it), itemSub(it), it.optional ? 'volitelně' : ''].filter(Boolean).join(' · ');
+        if (selDay > t) h += `<div class="row"><span class="grow"><span class="head" style="display:block">${esc(it.name)}</span><span class="foot">${sub || 'aktivita'}</span></span></div>`; // budoucnost se nepotvrzuje
+        else h += `<button class="row" data-a="tick" data-v="${it.id}"><span class="grow"><span class="head" style="display:block">${esc(it.name)}</span><span class="foot">${sub || (selDay < t ? 'klepni, pokud proběhlo' : 'klepni, až bude hotovo')}</span></span><span class="check ${done ? 'on' : ''}">${done ? I('check') : ''}</span></button>`;
       }
     }
     h += '</div>';
   }
-  if (firstTpl && !S.active) h += `<button class="btn b1" style="margin-top:16px" data-a="start" data-v="${firstTpl.id}">${I('play')} Začít trénink</button>`;
+  const resW = firstTpl && S.workouts.filter(w => w.date === selDay && w.itemId === firstTpl.id).slice(-1)[0];
+  if (resW && canResume(resW)) h += `<button class="btn b1" style="margin-top:16px" data-a="resumeW" data-v="${resW.id}">${I('play')} Pokračovat v tréninku</button>`;
+  else if (firstTpl && !S.active) h += `<button class="btn b1" style="margin-top:16px" data-a="start" data-v="${firstTpl.id}">${I('play')} Začít trénink</button>`;
+  if (selDay > t) h += items.length || r.custom ? `<button class="btn b1" style="margin-top:16px" data-a="dEdit" data-v="${selDay}">Upravit trénink</button>` : `<button class="btn b1" style="margin-top:16px" data-a="dAdd" data-v="${selDay}:ex">${I('plus')} Přidat trénink</button>`;
+  else if (selDay === t) h += `<div class="btns" style="justify-content:center"><button class="b3" data-a="dEdit" data-v="${selDay}">Upravit dnešek</button></div>`;
   const trT = tplById(TRIAL);
   const trN = trT ? trT.items.filter(e => !e.parked).length : 0;
-  if (trN && !S.active && !items.some(i => i.kind === 'tpl' && i.tplId === TRIAL))
+  if (trN && !S.active && selDay === t && !items.some(i => i.kind === 'tpl' && i.tplId === TRIAL))
     h += `<div class="surf" style="margin-top:16px"><button class="row" data-a="startTrial"><span class="grow"><span class="head" style="display:block">Vyzkoušet</span><span class="foot">${pl(trN, 'nový cvik', 'nové cviky', 'nových cviků')} · nabídnou se i na konci tréninku</span></span><span class="b3 b3i" style="padding:0">Začít ${I('r')}</span></button></div>`;
-  h += `<div class="marks"><button class="${r.manual === 'done' ? 'on-done' : ''}" data-a="mark" data-v="done">Splněno</button><button class="${r.manual === 'missed' ? 'on-missed' : ''}" data-a="mark" data-v="missed">Nesplněno</button><button class="${r.manual === 'off' ? 'on-off' : ''}" data-a="mark" data-v="off">Nemoc / volno</button></div>`;
-  h += `<div class="foot" style="text-align:center">${statusText[st]}${r.manual ? ' · označeno ručně' : ''}</div>`;
+  const rs = reasonTxt(r);
+  h += `<div class="foot" style="text-align:center;margin:12px 0">${statusText[st]}${rs ? ' · ' + esc(rs) : ''}</div>`;
+  if ((st === 'missed' || st === 'off') && !r.manual) h += `<div class="btns" style="justify-content:center"><button class="b3" data-a="reasonAsk" data-v="${selDay}">${rs ? 'Změnit důvod' : 'Doplnit důvod'}</button></div>`;
 
+  h += suppCard(selDay);
   const ws = S.workouts.filter(w => w.date === selDay);
   if (ws.length) { h += '<h2 class="cap">Záznam</h2>'; for (const w of ws) h += workoutCard(w); }
   return h;
 }
 function workoutCard(w) {
-  let h = `<div class="surf"><div class="row"><div class="grow"><div class="head">${esc(w.tplName)}</div><div class="foot">${splitTxt(w)}</div>${w.feel || w.note ? `<div class="foot">${[w.feel ? FEELS[w.feel] : '', w.note ? '„' + esc(w.note) + '“' : ''].filter(Boolean).join(' · ')}</div>` : ''}</div><span class="foot num">${fmtDur(w.end - w.start)}</span></div>`;
+  let h = `<div class="surf"><div class="row"><div class="grow"><div class="head">${esc(w.tplName)}</div><div class="foot">${splitTxt(w)}</div>${w.feel || w.note ? `<div class="foot">${[w.feel ? FEELS[w.feel] : '', w.note ? '„' + esc(w.note) + '“' : ''].filter(Boolean).join(' · ')}</div>` : ''}</div><span class="foot num">${fmtDur(wDur(w))}</span></div>`;
+  if (canResume(w)) h += `<button class="row" data-a="resumeW" data-v="${w.id}"><span class="grow head acc">Pokračovat v tréninku</span>${I('r', 'chev')}</button>`;
   h += '<div class="sub" style="padding:0 16px 8px"><table>';
   for (const e of w.ex) {
     h += `<tr><td>${esc(e.name)}</td><td class="tx2">${!e.sets.length ? (e.skipped ? 'přeskočeno' : '–') : e.sets.map(s => setTxt(e.kind, s)).join(', ')}</td><td class="r tx2 num">${e.sets.length ? fmtDur(exWork(e)) : ''}</td></tr>`;
@@ -552,7 +681,7 @@ function viewProg() {
     weeks.push({ m, n, cur: i === 0 });
   }
   const max = Math.max(4, ...weeks.map(w => w.n));
-  const totalMs = S.workouts.reduce((a, w) => a + (w.end - w.start), 0);
+  const totalMs = S.workouts.reduce((a, w) => a + wDur(w), 0);
   h += `<div class="surf"><div class="stats"><div><div class="v num">${weeks[7].n}</div><div class="foot">tento týden</div></div><div><div class="v num">${S.workouts.length}</div><div class="foot">tréninků</div></div><div><div class="v num">${fmtNum(totalMs / 3600000, 1)}</div><div class="foot">hodin</div></div></div></div>`;
   h += `<div class="surf pad"><div class="between"><span class="head">Splněné dny</span><span class="foot">${weeksInRow()} týd. v řadě</span></div><div class="bars">${weeks.map(w => `<div class="${w.cur ? 'cur' : ''}"><span>${w.n || ''}</span><b style="height:${w.n / max * 100}%"></b><span>${w.m.getDate()}.${w.m.getMonth() + 1}.</span></div>`).join('')}</div></div>`;
 
@@ -644,11 +773,14 @@ function viewPlan() {
   h += '<h2 class="cap">Týdenní rozvrh</h2><div class="surf">';
   for (let i = 0; i < 7; i++) {
     h += `<div class="row" style="align-items:flex-start"><div class="head" style="width:84px;padding-top:6px">${DNY_DLOUHE[i]}</div><div class="grow chips" style="padding-top:2px">`;
-    for (const it of S.week[i]) h += `<span class="chip">${esc(itemLabel(it))}${it.optional ? '<span class="tx3">&nbsp;(volit.)</span>' : ''}<button data-a="delDayItem" data-v="${i}:${it.id}" aria-label="Odebrat">${I('x')}</button></span>`;
+    for (const it of S.week[i]) h += `<span class="chip"><button data-a="editWeekItem" data-v="${i}:${it.id}" style="width:auto;color:var(--tx);padding:0 2px">${esc(itemLabel(it))}${it.kind === 'check' && actTxt(it) ? '<span class="tx3">&nbsp;' + actTxt(it) + '</span>' : ''}</button>${it.optional ? '<span class="tx3">&nbsp;(volit.)</span>' : ''}<button data-a="delDayItem" data-v="${i}:${it.id}" aria-label="Odebrat">${I('x')}</button></span>`;
     if (!S.week[i].length) h += '<span class="foot" style="padding-top:6px">volno</span>';
     h += `</div><button class="ib" data-a="addDayItem" data-v="${i}" aria-label="Přidat">${I('plus')}</button></div>`;
   }
   h += '</div>';
+  h += '<h2 class="cap">Suplementy</h2><div class="surf list">';
+  for (const x of S.supps.filter(x => !x.to)) h += `<button class="row" data-a="suppEdit" data-v="${x.id}"><span class="grow"><span class="head" style="display:block">${esc(x.name)}</span><span class="foot">${doseTxt(x.dose, x.unit)} · ${x.when === 'daily' ? 'každý den' : 'tréninkové dny'}${x.note ? ' · ' + esc(x.note) : ''}</span></span>${I('r', 'chev')}</button>`;
+  h += `<button class="row acc" data-a="suppEdit" data-v="">${I('plus')}<span class="head">Přidat suplement</span></button></div>`;
   const lb = S.settings.lastBackup;
   h += `<h2 class="cap">Záloha dat</h2><div class="surf"><div class="row foot" style="display:block">Data jsou jen v tomto telefonu. Občas je zálohuj do Souborů nebo na iCloud Drive.<br>${lb ? 'Poslední záloha ' + fmtDate(dkey(new Date(lb))) : 'Zatím žádná záloha.'}</div>
     <button class="row" data-a="export"><span class="grow head">Zálohovat</span>${I('r', 'chev')}</button><button class="row" data-a="import"><span class="grow head">Obnovit ze zálohy</span>${I('r', 'chev')}</button></div>`;
@@ -750,9 +882,12 @@ document.addEventListener('click', ev => {
   if (a === 'setSound' || a === 'setAuto' || a === 'progEx') return;
   ev.preventDefault();
   unlockAudio();
+  // akce průvodce (rXxx) bez běžícího tréninku (např. data změněná v jiném okně): jen zavři průvodce
+  if (/^r[A-Z]/.test(a) && !S.active) { closeSheet(); if ($('#run').innerHTML) closeRun(); return; }
   const act = ACT[a]; if (act) act(v, el);
 });
 document.addEventListener('input', ev => {
+  if (ev.target.id === 'exQ') { const q = ev.target.value.trim().toLowerCase(); document.querySelectorAll('#exList [data-n]').forEach(el => { el.style.display = !q || el.dataset.n.includes(q) ? '' : 'none'; }); }
   if (ev.target.id === 'tplName' && ev.target.type !== 'hidden') { const t = S.templates.find(x => x.id === ev.target.dataset.tid); if (t && ev.target.value.trim()) { t.name = ev.target.value.trim().slice(0, 80); clearTimeout(window._tn); window._tn = setTimeout(save, 500); } }
   if (ev.target.dataset.in === 'rNote' && S.active) { S.active.w.note = ev.target.value.slice(0, 300) || undefined; clearTimeout(window._nt); window._nt = setTimeout(save, 600); }
 });
@@ -766,15 +901,105 @@ const ACT = {
   wk: v => { selDay = dkey(addDays(parseKey(selDay), +v)); render(); },
   day: v => { selDay = v; render(); },
   hideInstall: () => { S.settings.hideInstall = true; save(); renderBanner(); },
-  mark: v => { const r = dayRec(selDay); r.manual = r.manual === v ? undefined : v; save(); render(); },
-  tick: v => { const r = dayRec(selDay); r.done = r.done || {}; r.done[v] = !r.done[v]; if (!r.done[v]) delete r.done[v]; if (r.manual === 'missed' && r.done[v]) delete r.manual; save(); render(); },
+  suppTick: v => { const [k, id] = v.split(':'); const x = S.supps.find(y => y.id === id); if (!x || k > today()) return;
+    commit(() => { const r = suppRec(k, x); r.taken = !r.taken; if (!r.taken && r.dose === x.dose && r.unit === x.unit) delete S.days[k].supps[x.id]; }); render(); },
+  suppDose: v => { const [k, id] = v.split(':'); const x = S.supps.find(y => y.id === id); if (!x || k > today()) return;
+    const r = ((S.days[k] || {}).supps || {})[id]; const dose = r ? r.dose : x.dose, unit = r ? r.unit : x.unit;
+    sheet(sheetHead('Dnešní dávka', ['closeSheet', 'Zrušit']) + `<div class="foot" style="margin:4px 4px 12px">${esc(x.name)} · výchozí ${doseTxt(x.dose, x.unit)} (v Plánu se nemění)</div>
+      <div class="step"><button data-a="suppStep" data-v="-1" aria-label="Méně">${I('minus')}</button><div class="v"><input class="inp num" id="sDose" type="text" inputmode="decimal" value="${fmtNum(dose)}" style="width:110px;text-align:center;font-size:28px"><div class="foot" style="text-align:center">${unit === 'g' ? 'gramů' : 'kusů'}</div></div><button data-a="suppStep" data-v="1" aria-label="Více">${I('plus')}</button></div>
+      <button class="btn b1" style="margin-top:16px" data-a="suppDoseSave" data-v="${k}:${id}">Uložit a odškrtnout</button>`); },
+  suppStep: v => { const el = $('#sDose'); const n = parseFloat(String(el.value).replace(',', '.')) || 0; el.value = fmtNum(Math.max(0, Math.round((n + +v * (n < 5 ? 0.5 : 1)) * 10) / 10)); },
+  suppDoseSave: v => { const [k, id] = v.split(':'); const x = S.supps.find(y => y.id === id); if (!x || k > today()) return;
+    const n = parseFloat(String($('#sDose').value).replace(',', '.')); if (!Number.isFinite(n) || n < 0 || n > 10000) { toast('Zadej dávku'); return; }
+    commit(() => { const r = suppRec(k, x); r.dose = Math.round(n * 100) / 100; r.taken = true; }); closeSheet(); render(); },
+  suppEdit: v => { const x = S.supps.find(y => y.id === v) || { id: '', name: '', dose: 1, unit: 'ks', when: 'daily', note: '' };
+    const seg = (id, opts, cur) => `<div class="seg" id="${id}">${opts.map(([k, l]) => `<button data-a="sSeg" data-v="${k}" class="${cur === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+    sheet(sheetHead(x.id ? 'Suplement' : 'Nový suplement', ['closeSheet', 'Zrušit']) + `<label class="fld"><span>Název</span><input class="inp" id="sName" maxlength="60" value="${esc(x.name)}"></label>
+      <label class="fld"><span>Výchozí dávka</span><input class="inp" id="sDef" type="text" inputmode="decimal" value="${fmtNum(x.dose)}"></label>
+      <div class="fld"><span>Jednotka</span>${seg('sUnit', [['g', 'gramy'], ['ks', 'kusy (tablety)']], x.unit)}</div>
+      <div class="fld"><span>Kdy</span>${seg('sWhen', [['daily', 'Každý den'], ['train', 'Tréninkové dny']], x.when)}</div>
+      <label class="fld"><span>Poznámka (nepovinné)</span><input class="inp" id="sNote" maxlength="60" placeholder="např. po tréninku" value="${esc(x.note || '')}"></label>
+      <button class="btn b1" style="margin-top:16px" data-a="suppSave" data-v="${x.id}">Uložit</button>
+      ${x.id ? `<div style="text-align:center;margin-top:16px"><button class="b3 danger" data-a="suppDel" data-v="${x.id}">Odebrat suplement</button><div class="foot">Historie zůstane.</div></div>` : ''}`); },
+  sSeg: (v, el) => el.parentNode.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === el)),
+  suppSave: v => {
+    const name = $('#sName').value.trim().slice(0, 60); const dose = parseFloat(String($('#sDef').value).replace(',', '.'));
+    if (!name) { toast('Napiš název'); return; } if (!Number.isFinite(dose) || dose < 0 || dose > 10000) { toast('Zadej dávku'); return; }
+    const unit = $('#sUnit .on')?.dataset.v || 'ks', when = $('#sWhen .on')?.dataset.v || 'daily', note = $('#sNote').value.trim().slice(0, 60);
+    commit(() => {
+      freezePast();
+      let x = S.supps.find(y => y.id === v);
+      if (!x) { x = { id: uid(), from: today() }; S.supps.push(x); }
+      Object.assign(x, { name, dose: Math.round(dose * 100) / 100, unit, when, note: note || undefined });
+    });
+    closeSheet(); render(); },
+  suppDel: v => { const x = S.supps.find(y => y.id === v); if (!x || !confirm('Odebrat „' + x.name + '“? Historie zůstane.')) return;
+    commit(() => { x.to = today(); });
+    closeSheet(); render(); },
+  dDetail: v => { const i = v.indexOf(':'); sheetTplDetail(v.slice(0, i), v.slice(i + 1)); },
+  dEdit: v => { if (editable(v)) sheetEditDay(v); },
+  dDel: v => { const [k, id] = v.split(':'); const it = dayItems(k).find(i => i.id === id); if (!editable(k) || !it || locked(k, it)) return;
+    commit(() => setDay(k, JSON.parse(JSON.stringify(dayItems(k).filter(i => i.id !== id))))); sheetEditDay(k); render(); },
+  dReplace: v => { const [k, id] = v.split(':'); const it = dayItems(k).find(i => i.id === id); if (!it) return;
+    sheet(sheetHead('Vyměnit ' + esc(itemLabel(it)), ['dEdit', 'Zpět', k]) + `<div class="foot" style="margin:0 4px 12px">Vyměnit za… · jen ${fmtDayShort(k)}</div><div class="surf list">${S.templates.filter(t => !isTrial(t) && t.id !== it.tplId).map(t => `<button class="row" data-a="dReplaceTo" data-v="${k}:${id}:${t.id}"><span class="grow head">${esc(t.name)}</span>${I('r', 'chev')}</button>`).join('')}</div>`); },
+  dReplaceTo: v => { const [k, id, tid] = v.split(':'); const it = dayItems(k).find(i => i.id === id); if (!editable(k) || !it || locked(k, it) || !tplById(tid)) return;
+    commit(() => setDay(k, dayItems(k).map(i => i.id !== id ? JSON.parse(JSON.stringify(i)) : Object.assign({}, i, { id: uid(), tplId: tid, instead: i.instead || itemLabel(i) }))));
+    sheetEditDay(k); render(); toast('Vyměněno jen pro ' + fmtDayShort(k)); },
+  dAdd: v => { const [k, tb = 'ex'] = v.split(':'); if (!editable(k)) return;
+    const tabs = [['ex', 'Cvik'], ['check', 'Aktivita'], ['tpl', 'Sestava']].map(([t, l]) => `<button data-a="dAdd" data-v="${k}:${t}" class="${tb === t ? 'on' : ''}">${l}</button>`).join('');
+    let h = sheetHead('Přidat · ' + fmtDayShort(k), ['dEdit', 'Zpět', k]) + `<div class="seg" style="margin-bottom:16px">${tabs}</div><div class="surf" style="margin-bottom:16px"><label class="row tgl"><span class="grow">Volitelné<span class="foot" style="display:block">když se nestihne, den se nepočítá jako nesplněný</span></span><input type="checkbox" switch id="dOpt"></label></div>`;
+    if (tb === 'ex') h += `<input class="inp" id="exQ" placeholder="Hledat cvik" style="margin-bottom:12px"><div class="surf list" id="exList">${allExercises().map(e => `<button class="row" data-n="${esc(e.name.toLowerCase())}" data-a="dAddEx" data-v="${k}:${e.id}"><span class="grow"><span class="head" style="display:block">${esc(e.name)}</span><span class="foot">${exSummary(e)}</span></span>${I('plus', 'chev')}</button>`).join('')}</div>`;
+    else if (tb === 'check') h += actForm({}) + `<button class="btn b1" style="margin-top:16px" data-a="dAddCheck" data-v="${k}">Přidat</button>`;
+    else h += `<div class="surf list">${S.templates.filter(t => !isTrial(t)).map(t => `<button class="row" data-a="dAddTpl" data-v="${k}:${t.id}"><span class="grow"><span class="head" style="display:block">${esc(t.name)}</span><span class="foot">${t.items.length} cviků</span></span>${I('plus', 'chev')}</button>`).join('')}</div>`;
+    sheet(h); },
+  dAddTpl: v => { const [k, tid] = v.split(':'); if (!editable(k) || !tplById(tid)) return;
+    const opt = $('#dOpt')?.checked || undefined; commit(() => setDay(k, JSON.parse(JSON.stringify(dayItems(k))).concat(JSON.parse(JSON.stringify({ id: uid(), kind: 'tpl', tplId: tid, added: true, optional: opt }))))); sheetEditDay(k); render(); },
+  dAddEx: v => { const [k, eid] = v.split(':'); const e = allExercises().find(x => x.id === eid); if (!editable(k) || !e) return;
+    const ex = JSON.parse(JSON.stringify(e)); delete ex.parked;
+    const opt = $('#dOpt')?.checked || undefined; commit(() => setDay(k, JSON.parse(JSON.stringify(dayItems(k))).concat(JSON.parse(JSON.stringify({ id: uid(), kind: 'ex', ex, added: true, optional: opt }))))); sheetEditDay(k); render(); },
+  dAddCheck: k => { if (!editable(k)) return; const a = readAct(); if (!a) return; a.optional = $('#dOpt')?.checked || undefined;
+    commit(() => setDay(k, JSON.parse(JSON.stringify(dayItems(k))).concat(JSON.parse(JSON.stringify(Object.assign({ id: uid(), kind: 'check', added: true }, a)))))); sheetEditDay(k); render(); },
+  dEditCheck: v => { const [k, id] = v.split(':'); const it = dayItems(k).find(i => i.id === id); if (!editable(k) || !it || locked(k, it)) return;
+    sheet(sheetHead('Aktivita · ' + fmtDayShort(k), ['dEdit', 'Zpět', k]) + actForm(it, true) + `<button class="btn b1" style="margin-top:16px" data-a="dSaveCheck" data-v="${v}">Uložit</button>`); },
+  dSaveCheck: v => { const [k, id] = v.split(':'); const it = dayItems(k).find(i => i.id === id); if (!editable(k) || !it || locked(k, it)) return; const a = readAct(); if (!a) return;
+    a.optional = $('#dOpt')?.checked || undefined; commit(() => setDay(k, JSON.parse(JSON.stringify(dayItems(k).map(i => i.id === id ? Object.assign({}, i, { mins: undefined, km: undefined, note: undefined }, a) : i))))); sheetEditDay(k); render(); },
+  dSwap: k => { const opts = []; for (let i = 0; i < 14; i++) { const o = dkey(addDays(new Date(), i)); if (o !== k) opts.push(o); }
+    sheet(sheetHead('Prohodit ' + fmtDayShort(k), ['dEdit', 'Zpět', k]) + `<div class="foot" style="margin:0 4px 12px">Plány obou dnů se vymění. Týdenní rozvrh zůstane.</div><div class="surf list">${opts.map(o => { const its = dayItems(o); const lk = its.some(i => locked(o, i)); return `<button class="row" data-a="dSwapTo" data-v="${k}:${o}" ${lk ? 'disabled style="opacity:.4"' : ''}><span class="grow"><span class="head" style="display:block">${fmtDayShort(o)}</span><span class="foot">${esc(itemsTxt(its))}</span></span>${I('swap', 'chev')}</button>`; }).join('')}</div>`); },
+  dSwapTo: v => { const [a, b] = v.split(':'); if (!editable(a) || !editable(b) || a === b) return;
+    const ia = dayItems(a), ib = dayItems(b); if (ia.some(i => locked(a, i)) || ib.some(i => locked(b, i))) { toast('Rozcvičený trénink nejde přehodit'); return; }
+    const mv = (its, from) => JSON.parse(JSON.stringify(its)).map(i => Object.assign(i, { id: uid(), from: i.from === undefined ? from : i.from }));
+    commit(() => { setDay(a, mv(ib, b)); setDay(b, mv(ia, a)); dayRec(a).swapWith = b; dayRec(b).swapWith = a; });
+    closeSheet(); render(); toast('Prohozeno: ' + fmtDayShort(a) + ' ↔ ' + fmtDayShort(b)); },
+  dReset: k => { const r = S.days[k]; if (!r || !editable(k)) return;
+    const ks = [k]; if (r.swapWith && (S.days[r.swapWith] || {}).swapWith === k && editable(r.swapWith)) ks.push(r.swapWith);
+    if (ks.some(x => dayItems(x).some(i => locked(x, i)))) { toast('Rozcvičený trénink nejde vrátit'); return; }
+    commit(() => { for (const x of ks) { const rr = S.days[x]; delete rr.custom; delete rr.swapWith; rr.items = weekCopy(x); } });
+    closeSheet(); render(); toast('Vráceno podle rozvrhu'); },
+  reasonAsk: v => sheetReason(v),
+  reasonOther: v => sheetReason(v.split(':')[0], true),
+  reasonSet: v => { const [k, why] = v.split(':'); if (!REASONS[why]) return; commit(() => { const r = dayRec(k); r.reason = why; delete r.reasonNote; delete r.reasonSkip; }); closeSheet(); render(); setTimeout(askReason, 300); },
+  reasonSave: v => { const t = ($('#rsNote').value || '').trim().slice(0, 80); commit(() => { const r = dayRec(v); r.reason = 'jine'; if (t) r.reasonNote = t; else delete r.reasonNote; delete r.reasonSkip; }); closeSheet(); render(); setTimeout(askReason, 300); },
+  reasonLater: () => { commit(() => { for (let k = pendingReason(), g = 0; k && g < 8; k = pendingReason(), g++) dayRec(k).reasonSkip = true; }); closeSheet(); render(); }, // „Teď ne“ = neptat se na tyto dny (důvod jde doplnit v dni)
+  tick: v => { if (selDay > today()) return; const r = dayRec(selDay); setTimeout(() => { if (dayStatus(selDay) === 'done' && (r.reason || r.reasonSkip)) { delete r.reason; delete r.reasonNote; delete r.reasonSkip; save(); render(); } }, 0); r.done = r.done || {}; r.done[v] = !r.done[v]; if (!r.done[v]) delete r.done[v]; if (r.manual === 'missed' && r.done[v]) delete r.manual; save(); render(); },
   start: v => {
-    const it = dayItems(selDay).find(i => i.id === v); if (!it) return;
+    if (selDay !== today()) return;
+    const it = dayItems(selDay).find(i => i.id === v); if (!it || it.kind === 'check') return;
     if (S.active && !confirm('Už máš rozběhnutý trénink. Zahodit ho a začít nový?')) return;
-    startWorkout(it.tplId, selDay, it.id);
+    closeSheet();
+    if (it.kind === 'ex') startWorkout('cvik', selDay, it.id, JSON.parse(JSON.stringify(it.ex)));
+    else startWorkout(it.tplId, selDay, it.id);
   },
   resume: () => openRun(),
-  startTrial: () => startWorkout(TRIAL, selDay, null),
+  resumeW: v => {
+    const w0 = S.workouts.find(w => w.id === v); if (!w0 || !canResume(w0)) return;
+    const now = Date.now(), w = JSON.parse(JSON.stringify(w0));
+    w.breakMs = (w.breakMs || 0) + Math.max(0, now - w0.end); w.end = null; delete w.complete;
+    S.active = { w, i: 0, side: 0, phase: 'end', deadline: null, left: null, paused: false, readyAt: now, curSince: null, cur: { reps: null, load: null }, resumed: true };
+    const k = w.ex.findIndex(y => y.sets.length < y.plan.sets && !y.skipped);
+    goEx(k >= 0 ? k : w.ex.findIndex(y => y.sets.length < y.plan.sets), now);
+    save(); closeSheet(); openRun();
+  },
+  startTrial: () => { if (selDay === today()) startWorkout(TRIAL, selDay, null); },
   addMeasure: () => {
     sheet(sheetHead('Zapsat měření', ['closeSheet', 'Zrušit']) + `<label class="fld"><span>Co</span><select class="inp" id="mMetric">${S.metrics.map(m => `<option value="${m.key}">${esc(m.name)} (${esc(m.unit)})</option>`).join('')}<option value="__new">Jiné…</option></select></label>
       <label class="fld"><span>Hodnota</span><input class="inp" id="mVal" type="number" inputmode="decimal" step="0.1"></label>
@@ -814,10 +1039,11 @@ const ACT = {
   newTpl: () => { const t = { id: 't' + uid(), name: 'Nová sestava', items: [] }; S.templates.push(t); save(); render(); sortMode = false; sheetTpl(t.id); },
   saveTplName: v => { const t = tplById(v); if (t) { t.name = $('#tplName').value.trim() || t.name; save(); } closeSheet(); render(); },
   delTpl: v => {
-    const t = tplById(v); const used = S.week.some(d => d.some(i => i.kind === 'tpl' && i.tplId === v));
+    freezePast(); const t = tplById(v); const used = S.week.some(d => d.some(i => i.kind === 'tpl' && i.tplId === v));
     if (!confirm('Smazat sestavu „' + t.name + '“?' + (used ? ' Zmizí i z týdenního rozvrhu.' : '') + ' Historie tréninků zůstane.')) return;
     S.templates = S.templates.filter(x => x.id !== v);
     S.week = S.week.map(d => d.filter(i => !(i.kind === 'tpl' && i.tplId === v)));
+    for (const [k, r] of Object.entries(S.days)) if (r.custom && k >= today() && r.items) r.items = r.items.filter(i => !(i.kind === 'tpl' && i.tplId === v) || locked(k, i));
     refreshSnapshots(); save(); closeSheet(); render();
   },
   mvEx: v => { const [tid, i, d] = v.split(':'); const t = tplById(tid); const a = +i, b = a + +d; if (b < 0 || b >= t.items.length) return; [t.items[a], t.items[b]] = [t.items[b], t.items[a]]; save(); sheetTpl(tid); },
@@ -868,18 +1094,25 @@ const ACT = {
   },
   addDayItem: v => {
     const i = +v;
-    sheet(sheetHead(DNY_DLOUHE[i], ['closeSheet', 'Zrušit']) + `<div class="surf list">${S.templates.map(t => `<button class="row" data-a="pickDay" data-v="${i}:tpl:${t.id}"><span class="grow head">${esc(t.name)}</span>${I('plus', 'chev')}</button>`).join('')}</div>
-      <label class="fld" style="margin-top:24px"><span>Jiná aktivita (jen odškrtnutí)</span><input class="inp" id="dName" placeholder="např. Sparring"></label>
-      <div class="surf"><label class="row tgl"><span class="grow">Volitelné</span><input type="checkbox" switch id="dOpt"></label></div>
+    sheet(sheetHead(DNY_DLOUHE[i], ['closeSheet', 'Zrušit']) + `<div class="surf" style="margin-bottom:16px"><label class="row tgl"><span class="grow">Volitelné<span class="foot" style="display:block">když se nestihne, den se nepočítá jako nesplněný</span></span><input type="checkbox" switch id="dOpt"></label></div><h2 class="cap">Sestava</h2><div class="surf list">${S.templates.map(t => `<button class="row" data-a="pickDay" data-v="${i}:tpl:${t.id}"><span class="grow head">${esc(t.name)}</span>${I('plus', 'chev')}</button>`).join('')}</div>
+      <h2 class="cap" style="margin-top:24px">Aktivita bez průvodce</h2>${actForm({})}
       <button class="btn b2" style="margin-top:16px" data-a="pickDay" data-v="${i}:check:">Přidat aktivitu</button>`);
   },
   pickDay: v => {
+    freezePast();
     const [i, kind, tid] = v.split(':'); const opt = $('#dOpt')?.checked || false;
     if (kind === 'tpl') S.week[+i].push({ id: uid(), kind: 'tpl', tplId: tid, optional: opt });
-    else { const n = $('#dName').value.trim(); if (!n) { toast('Napiš název'); return; } S.week[+i].push({ id: uid(), kind: 'check', name: n, optional: opt }); }
+    else { const a = readAct(); if (!a) return; S.week[+i].push(Object.assign({ id: uid(), kind: 'check', optional: opt }, a)); }
     refreshSnapshots(); save(); closeSheet(); render();
   },
-  delDayItem: v => { const [i, id] = v.split(':'); S.week[+i] = S.week[+i].filter(x => x.id !== id); refreshSnapshots(); save(); render(); },
+  editWeekItem: v => { const [i, id] = v.split(':'); const it = (S.week[+i] || []).find(x => x.id === id); if (!it) return;
+    sheet(sheetHead(DNY_DLOUHE[+i] + ' · každý týden', ['closeSheet', 'Zrušit']) + (it.kind === 'check' ? actForm(it, true)
+      : `<div class="head" style="margin:4px 4px 12px">${esc(itemLabel(it))}</div><div class="surf"><label class="row tgl"><span class="grow">Volitelné<span class="foot" style="display:block">když se nestihne, den se nepočítá jako nesplněný</span></span><input type="checkbox" switch id="dOpt" ${it.optional ? 'checked' : ''}></label></div>`)
+      + `<button class="btn b1" style="margin-top:16px" data-a="saveWeekItem" data-v="${v}">Uložit</button>`); },
+  saveWeekItem: v => { const [i, id] = v.split(':'); const it = (S.week[+i] || []).find(x => x.id === id); if (!it) return;
+    const a = it.kind === 'check' ? readAct() : {}; if (!a) return; const opt = $('#dOpt')?.checked || false;
+    commit(() => { freezePast(); Object.assign(it, a, { optional: opt }); for (const k of ['mins', 'km', 'note']) if (it[k] === undefined) delete it[k]; refreshSnapshots(); }); closeSheet(); render(); },
+  delDayItem: v => { freezePast(); const [i, id] = v.split(':'); S.week[+i] = S.week[+i].filter(x => x.id !== id); refreshSnapshots(); save(); render(); },
   export: () => exportData(),
   import: () => importData(),
 };
@@ -923,14 +1156,14 @@ function importData() {
    Časy se počítají z uloženého termínu, ne z tiků — přežijí zamčení.
    Po návratu z uspání se nic samo nespouští (čeká na klepnutí).
    ========================================================= */
-function startWorkout(tplId, date, itemId) {
-  const t = tplById(tplId);
+function startWorkout(tplId, date, itemId, oneEx) {
+  const t = oneEx ? { name: oneEx.name, items: [oneEx] } : tplById(tplId);
   const base = t ? (tplId === TRIAL ? t.items.filter(e => !e.parked) : t.items) : [];
   if (!base.length) { toast(tplId === TRIAL ? 'Žádný cvik k vyzkoušení (nebo jsou uspané)' : 'Sestava je prázdná'); return; }
   const now = Date.now();
   const snap = (e, trial) => ({ id: e.id, name: e.name, kind: e.kind, plan: JSON.parse(JSON.stringify(e)), sets: [], start: null, end: null, skipped: false, activeMs: 0, trial: trial || undefined });
   // cviky k vyzkoušení (ne uspané) se nabídnou na konci každé sestavy, ať je vyzkoušíš co nejdřív
-  const extra = tplId === TRIAL ? [] : (tplById(TRIAL)?.items || []).filter(e => !e.parked && !t.items.some(x => x.id === e.id));
+  const extra = tplId === TRIAL || oneEx ? [] : (tplById(TRIAL)?.items || []).filter(e => !e.parked && !t.items.some(x => x.id === e.id));
   const w = { id: uid(), date, itemId, tplId, tplName: t.name, start: now, end: null,
     ex: base.map(e => snap(e, tplId === TRIAL)).concat(extra.map(e => snap(e, true))) };
   S.active = { w, i: 0, side: 0, phase: 'ready', deadline: null, left: null, paused: false, readyAt: now, curSince: now,
@@ -947,7 +1180,7 @@ async function requestWake() {
   catch (e) { wakeLock = null; }
 }
 function releaseWake() { try { wakeLock && wakeLock.release(); } catch (e) {} wakeLock = null; }
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.active && $('#run').innerHTML) { requestWake(); tick(); } });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState !== 'visible') return; freezePast(); save(); if (S.active && $('#run').innerHTML) { requestWake(); tick(); } else if (!S.active) { render(); askReason(); } else render(); });
 
 /* zvuk */
 let actx = null;
@@ -1065,7 +1298,7 @@ function markEnd(now) { const a = A(); stopBank(now); a.phase = 'end'; a.deadlin
 // Čas cvičení = součet sérií (časové: skutečné sekundy, opakování: Start → Série hotová); zbytek tréninku jsou pauzy.
 const exWork = x => x.sets.reduce((t, st) => t + (x.kind === 'time' ? (st.secs || 0) * 1000 : Math.max(0, (st.end || 0) - (st.start || 0))), 0);
 const workMs = w => w.ex.reduce((t, x) => t + exWork(x), 0);
-const splitTxt = (w, end) => { const tot = (end || w.end || Date.now()) - w.start, wk = Math.min(tot, workMs(w)); return 'cvičení ' + fmtDur(wk) + ' · pauzy ' + fmtDur(tot - wk); };
+const splitTxt = (w, end) => { const tot = wDur(w, end), wk = Math.min(tot, workMs(w)); return 'cvičení ' + fmtDur(wk) + ' · pauzy ' + fmtDur(tot - wk); };
 const exDur = (x, live) => { let ms = isNum(x.activeMs) ? x.activeMs : (x.start && x.end ? x.end - x.start : 0); if (live && isNum(live.curSince)) ms += Date.now() - live.curSince; return ms; };
 function nextExercise(now) {
   const a = A(); const n = a.w.ex.length;
@@ -1156,7 +1389,7 @@ function expire(now) {
   save(); renderRun();
 }
 function updUp() { const el = $('#rUp'); const a = A(); if (el && a && a.phase === 'work' && a.setStart) el.textContent = fmtDur(Date.now() - a.setStart); }
-function updClock() { const c = $('#rClock'); const a = A(); if (c && a) c.textContent = fmtDur((a.phase === 'end' && a.endedAt ? a.endedAt : Date.now()) - a.w.start); }
+function updClock() { const c = $('#rClock'); const a = A(); if (c && a) c.textContent = fmtDur(wDur(a.w, a.phase === 'end' && a.endedAt ? a.endedAt : Date.now())); }
 const RC = 2 * Math.PI * 48;
 function updTimer(left) {
   const el = $('#rBig'); if (!el) return; const a = A();
@@ -1188,14 +1421,14 @@ function renderRun() {
   const a = A(); if (!a) return closeRun();
   const w = a.w, n = w.ex.length, x = w.ex[a.i], e = x.plan;
   const doneEx = w.ex.filter(y => y.sets.length >= y.plan.sets).length;
-  const top = `<div class="run-top"><button class="ib" data-a="rMenu" aria-label="Menu" style="color:var(--tx)">${I('list')}</button><div class="mid" data-a="rList" role="button" aria-label="Přehled cviků">${a.phase === 'end' ? '' : `<span class="cap num">${(a.i + 1) + ' / ' + n}</span><div class="bar"><i style="width:${doneEx / n * 100}%"></i></div>`}</div><span class="clock num" id="rClock">${fmtDur((a.phase === 'end' && a.endedAt ? a.endedAt : Date.now()) - w.start)}</span></div>
+  const top = `<div class="run-top"><button class="ib" data-a="rMenu" aria-label="Menu" style="color:var(--tx)">${I('list')}</button><div class="mid" data-a="rList" role="button" aria-label="Přehled cviků">${a.phase === 'end' ? '' : `<span class="cap num">${(a.i + 1) + ' / ' + n}</span><div class="bar"><i style="width:${doneEx / n * 100}%"></i></div>`}</div><span class="clock num" id="rClock">${fmtDur(wDur(w, a.phase === 'end' && a.endedAt ? a.endedAt : Date.now()))}</span></div>
     ${!wakeLock && 'wakeLock' in navigator ? `<div class="foot" style="text-align:center">${I('moon')} displej může zhasnout</div>` : ''}`;
   let main = '', bot = '', cls = '';
   const nextEx = w.ex.find((y, k) => k > a.i && y.sets.length < y.plan.sets && !y.skipped);
   const nextTxt = `<div class="next">${nextEx ? 'Potom: ' + esc(nextEx.name) : 'Poslední cvik'}</div>`;
   if (a.phase === 'end') {
     const sets = w.ex.reduce((s, y) => s + y.sets.length, 0);
-    main = `<h1 class="large">Hotovo.</h1><div class="num" style="font-size:64px;font-weight:700;letter-spacing:-.03em;margin:8px 0">${fmtDur((a.endedAt || Date.now()) - w.start)}</div><div class="foot">${pl(w.ex.filter(y => y.sets.length).length, 'cvik', 'cviky', 'cviků')} · ${pl(sets, 'série', 'série', 'sérií')}</div><div class="head" style="margin-top:8px">${splitTxt(w, a.endedAt || Date.now())}</div>
+    main = `<h1 class="large">Hotovo.</h1><div class="num" style="font-size:64px;font-weight:700;letter-spacing:-.03em;margin:8px 0">${fmtDur(wDur(w, a.endedAt || Date.now()))}</div><div class="foot">${pl(w.ex.filter(y => y.sets.length).length, 'cvik', 'cviky', 'cviků')} · ${pl(sets, 'série', 'série', 'sérií')}</div><div class="head" style="margin-top:8px">${splitTxt(w, a.endedAt || Date.now())}</div>
       <div class="feel">${Object.entries(FEELS).map(([k, l]) => `<button class="${w.feel === k ? 'on' : ''}" data-a="rFeel" data-v="${k}">${l}</button>`).join('')}</div>
       <textarea class="inp" id="rNote" maxlength="300" placeholder="Poznámka (nepovinné)" style="margin-top:8px" data-in="rNote">${esc(w.note || '')}</textarea>`;
     const tried = w.ex.filter(y => y.trial && y.sets.length && tplById(TRIAL)?.items.some(e => e.id === y.id));
@@ -1268,14 +1501,15 @@ function saveWorkout(endAt) {
     w.complete = complete;
     if (w.ex.some(y => y.sets.length) && w.itemId) {
       const r = dayRec(w.date); r.done = r.done || {};
-      if (complete) { r.done[w.itemId] = true; if (r.partial) delete r.partial[w.itemId]; if (r.manual === 'missed') delete r.manual; }
-      else { r.partial = r.partial || {}; r.partial[w.itemId] = true; }
+      if (complete) { r.done[w.itemId] = true; if (r.partial) delete r.partial[w.itemId]; if (r.manual === 'missed') delete r.manual; delete r.reason; delete r.reasonNote; delete r.reasonSkip; }
+      else { r.partial = r.partial || {}; r.partial[w.itemId] = true; if (a.resumed && r.done) delete r.done[w.itemId]; } // pokračování nahrazuje záznam: splnění se přepočítá
     }
-    S.workouts.push(w); S.active = null;
+    const old = a.resumed ? S.workouts.findIndex(y => y.id === w.id) : -1;
+    if (old >= 0) S.workouts[old] = w; else S.workouts.push(w); S.active = null;
   });
   if (!ok) { if (S.active) renderRun(); return; }
   closeSheet(); closeRun(); selDay = w0.date; tab = 'den'; render();
-  toast(complete ? 'Trénink uložen' : 'Uloženo jako částečný trénink — odškrtni ručně, pokud chceš');
+  toast(complete ? 'Trénink uložen' : 'Uloženo jako částečný trénink — dnes v něm můžeš pokračovat');
 }
 Object.assign(ACT, {
   rStart: () => beginWork(),
@@ -1309,15 +1543,16 @@ Object.assign(ACT, {
       <button class="btn b1" data-a="rEndKeep">Započítat a ukončit</button><div style="text-align:center;margin-top:16px"><button class="b3" data-a="rEndDrop">Nezapočítat</button></div>`); },
   rEndKeep: () => endNow(true),
   rEndDrop: () => endNow(false),
-  rDiscard: () => { if (!confirm('Opravdu zahodit? Nic se neuloží.')) return; S.active = null; save(); closeSheet(); closeRun(); },
+  rDiscard: () => { if (!confirm(A() && A().resumed ? 'Zahodit pokračování? Dříve uložená část zůstane.' : 'Opravdu zahodit? Nic se neuloží.')) return; S.active = null; save(); closeSheet(); closeRun(); },
   rFeel: v => { const a = A(); a.w.feel = a.w.feel === v ? undefined : v; save(); renderRun(); },
   rFinish: () => saveWorkout(),
   rSaveStale: () => { const a = A(); saveWorkout(a.endedAt || Math.max(lastActivity(a.w), a.readyAt || 0, a.setStart || 0)); },
 });
 
 /* ---------- start ---------- */
+freezePast(); save();
 render();
-if (S.active) openRun();
+if (S.active) openRun(); else setTimeout(askReason, 600);
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
