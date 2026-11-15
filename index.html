@@ -1,0 +1,871 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Trénink">
+<meta name="theme-color" content="#12141a">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>Trénink</title>
+<style>
+:root{
+  --bg:#12141a; --bg2:#1b1e26; --bg3:#252934; --line:#2f3440;
+  --tx:#f4f5f7; --tx2:#a3a9b6; --tx3:#6b7280;
+  --acc:#c6f432; --accTx:#12141a; --ok:#3ddc84; --bad:#ff6b6b; --rest:#5aa9ff; --warn:#ffb547;
+  --r:18px; --safeB:env(safe-area-inset-bottom); --safeT:env(safe-area-inset-top);
+  color-scheme:dark;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--tx);font:17px/1.35 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;-webkit-text-size-adjust:100%}
+body{min-height:100dvh;overscroll-behavior:none}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:0;background:none;padding:0;touch-action:manipulation}
+h1{font-size:30px;margin:0;letter-spacing:-.02em}
+h2{font-size:20px;margin:28px 0 10px}
+.tx2{color:var(--tx2)} .tx3{color:var(--tx3)} .small{font-size:14px}
+#app{padding:calc(var(--safeT) + 14px) 16px calc(var(--safeB) + 96px);max-width:560px;margin:0 auto}
+.top{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:14px}
+.card{background:var(--bg2);border-radius:var(--r);padding:16px;margin:10px 0}
+.row{display:flex;align-items:center;gap:12px}
+.grow{flex:1;min-width:0}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;min-height:56px;padding:0 20px;border-radius:16px;background:var(--bg3);font-weight:600;font-size:17px;width:100%}
+.btn.acc{background:var(--acc);color:var(--accTx)}
+.btn.big{min-height:76px;font-size:22px;border-radius:22px}
+.btn.ok{background:var(--ok);color:#06210f}
+.btn.ghost{background:transparent;border:1.5px solid var(--line)}
+.btn.sm{min-height:44px;font-size:15px;padding:0 14px;width:auto;border-radius:12px}
+.btn.danger{color:var(--bad)}
+.btns{display:flex;gap:10px} .btns>*{flex:1}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;background:var(--bg3);font-size:13px;color:var(--tx2);white-space:nowrap}
+/* týden */
+.week{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin:6px 0 4px}
+.wd{display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 0 12px;border-radius:14px;background:var(--bg2);min-height:78px}
+.wd.sel{outline:2px solid var(--acc)}
+.wd .n{font-size:12px;color:var(--tx2);text-transform:uppercase}
+.wd .d{font-size:19px;font-weight:700}
+.wd.today .d{color:var(--acc)}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--line)}
+.dot.done{background:var(--ok)} .dot.missed{background:var(--bad)} .dot.partial{background:var(--warn)} .dot.rest{background:transparent;border:1.5px solid var(--line)} .dot.plan{background:var(--tx3)}
+.weeknav{display:flex;justify-content:space-between;align-items:center}
+.status{display:flex;gap:8px;margin:14px 0 4px}
+.status .btn{min-height:52px}
+.status .btn.on-done{background:var(--ok);color:#06210f}
+.status .btn.on-missed{background:var(--bad);color:#2a0606}
+.item{display:flex;align-items:center;gap:14px;background:var(--bg2);border-radius:var(--r);padding:14px 16px;margin:10px 0;min-height:72px}
+.check{width:40px;height:40px;border-radius:50%;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;flex:none;font-size:22px}
+.check.on{background:var(--ok);border-color:var(--ok);color:#06210f}
+.item .t{font-weight:600}
+/* tab bar */
+.tabs{position:fixed;left:0;right:0;bottom:0;display:flex;background:rgba(18,20,26,.92);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-top:1px solid var(--line);padding:6px 8px calc(var(--safeB) + 6px);z-index:5}
+.tabs button{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;font-size:12px;color:var(--tx3);min-height:56px}
+.tabs button.on{color:var(--acc)}
+.tabs svg{width:26px;height:26px}
+/* runner */
+.run{position:fixed;inset:0;background:var(--bg);z-index:20;display:flex;flex-direction:column;padding:calc(var(--safeT) + 8px) 16px calc(var(--safeB) + 14px)}
+.run.flash{animation:fl .6s 2}
+@keyframes fl{50%{background:#3a4a10}}
+.run.restbg{background:#0f1a28}
+.run-top{display:flex;align-items:center;gap:10px;min-height:52px}
+.run-top .x{width:48px;height:48px;border-radius:14px;background:var(--bg2);font-size:22px}
+.run-top .clock{font-variant-numeric:tabular-nums;font-weight:600;color:var(--tx2)}
+.prog{height:6px;border-radius:3px;background:var(--bg3);overflow:hidden;margin:6px 0 12px}
+.prog i{display:block;height:100%;background:var(--acc)}
+.run-main{flex:1;display:flex;flex-direction:column;justify-content:center;text-align:center;gap:6px;min-height:0;overflow:auto}
+.ex-name{font-size:30px;font-weight:750;letter-spacing:-.02em;line-height:1.15}
+.ex-meta{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin:6px 0}
+.ex-meta .pill{font-size:15px;padding:6px 12px}
+.big{font-size:96px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.04em;line-height:1}
+.big.rest{color:var(--rest)}
+.lbl{font-size:15px;color:var(--tx2);text-transform:uppercase;letter-spacing:.08em}
+.setdots{display:flex;justify-content:center;gap:8px;margin:10px 0}
+.setdots i{width:14px;height:14px;border-radius:50%;background:var(--bg3)}
+.setdots i.on{background:var(--ok)} .setdots i.cur{background:var(--acc)}
+.step{display:flex;align-items:center;justify-content:center;gap:10px;margin:8px 0}
+.step button{width:56px;height:56px;border-radius:16px;background:var(--bg2);font-size:26px;font-weight:600}
+.step .v{min-width:110px;font-size:28px;font-weight:700;font-variant-numeric:tabular-nums}
+.step .u{font-size:14px;color:var(--tx2);display:block;font-weight:500}
+.run-bot{display:flex;flex-direction:column;gap:10px}
+.next{font-size:15px;color:var(--tx2);text-align:center;min-height:20px}
+.ring{width:min(70vw,280px);height:min(70vw,280px);margin:4px auto;position:relative}
+.ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+.ring .in{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.ring .big{font-size:76px}
+.list .li{display:flex;align-items:center;gap:12px;padding:12px 4px;border-bottom:1px solid var(--line);min-height:56px;text-align:left;width:100%}
+.list .li .check{width:30px;height:30px;font-size:16px}
+/* sheet */
+.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:40;display:flex;align-items:flex-end}
+.sheet{background:var(--bg2);width:100%;max-width:560px;margin:0 auto;border-radius:24px 24px 0 0;padding:18px 16px calc(var(--safeB) + 16px);max-height:92dvh;overflow:auto}
+.sheet h3{margin:0 0 12px;font-size:21px}
+.fld{display:block;margin:10px 0}
+.fld>span{display:block;font-size:14px;color:var(--tx2);margin-bottom:6px}
+.inp{width:100%;min-height:52px;border-radius:14px;border:1.5px solid var(--line);background:var(--bg);padding:0 14px;font-size:17px}
+textarea.inp{padding:12px 14px;min-height:80px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.seg{display:flex;background:var(--bg);border-radius:14px;padding:4px;gap:4px}
+.seg button{flex:1;min-height:46px;border-radius:11px;color:var(--tx2);font-weight:600}
+.seg button.on{background:var(--bg3);color:var(--tx)}
+.ex-row{display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--line)}
+.ex-row:last-child{border:0}
+.ex-row .mv{display:flex;flex-direction:column;gap:4px}
+.ex-row .mv button{width:40px;height:34px;border-radius:10px;background:var(--bg3);color:var(--tx2)}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.chip{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:12px;background:var(--bg3);font-size:15px}
+.chip button{color:var(--tx3);font-size:18px;line-height:1}
+.bars{display:flex;align-items:flex-end;gap:6px;height:120px;margin-top:8px}
+.bars div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:4px;font-size:11px;color:var(--tx3)}
+.bars b{display:block;width:100%;border-radius:6px 6px 3px 3px;background:var(--acc);min-height:3px}
+.bars .cur b{background:var(--ok)}
+.stat{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.stat .card{margin:0;text-align:center;padding:14px 8px}
+.stat .v{font-size:28px;font-weight:750}
+table{width:100%;border-collapse:collapse;font-size:15px}
+td,th{padding:9px 4px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{color:var(--tx2);font-weight:500;font-size:13px}
+.spark{width:100%;height:70px;display:block;margin-top:6px}
+.toast{position:fixed;left:16px;right:16px;bottom:calc(var(--safeB) + 90px);background:var(--tx);color:var(--bg);padding:14px 16px;border-radius:14px;font-weight:600;z-index:60;text-align:center}
+.empty{color:var(--tx3);text-align:center;padding:24px 8px}
+.warn{background:#3a2a0d;color:#ffd892;border-radius:14px;padding:12px 14px;font-size:15px;margin:10px 0}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<nav class="tabs" id="tabs"></nav>
+<div id="run"></div>
+<div id="sheet"></div>
+<script>
+'use strict';
+/* =========================================================
+   Trénink — osobní PWA. Všechna data jen v tomto zařízení
+   (localStorage). Záloha: Plán → Záloha dat.
+   ========================================================= */
+const KEY = 'trenink.v1';
+const DNY = ['Po','Út','St','Čt','Pá','So','Ne'];
+const DNY_DLOUHE = ['Pondělí','Úterý','Středa','Čtvrtek','Pátek','Sobota','Neděle'];
+const uid = () => Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-3);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pad = n => String(n).padStart(2, '0');
+const dkey = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+const parseKey = k => { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d); };
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const monday = d => { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); return addDays(x, -((x.getDay() + 6) % 7)); };
+const wIdx = d => (d.getDay() + 6) % 7;
+const fmtNum = n => n == null || n === '' ? '' : String(Math.round(n * 100) / 100).replace('.', ',');
+const fmtDur = ms => { const s = Math.max(0, Math.round(ms / 1000)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), ss = s % 60; return h ? h + ':' + pad(m) + ':' + pad(ss) : m + ':' + pad(ss); };
+const fmtSec = s => s >= 60 ? (s % 60 ? Math.floor(s / 60) + ' min ' + (s % 60) + ' s' : (s / 60) + ' min') : s + ' s';
+const fmtDate = k => { const d = parseKey(k); return d.getDate() + '. ' + (d.getMonth() + 1) + '.'; };
+
+/* ---------- výchozí plán (z PDF) ---------- */
+function ex(name, o) { return Object.assign({ id: uid(), name, kind: 'reps', sets: 2, reps: 10, repsTo: null, secs: 60, perSide: false, sideLabel: '', load: null, rest: 45, note: '' }, o); }
+function defaultState() {
+  const zaver = { id: 'zaver', name: 'Závěr po běhu', items: [
+    ex('Hluboký dřep', { kind: 'time', sets: 1, secs: 60 }),
+    ex('Mobilita kyčlí 90/90', { kind: 'time', sets: 1, secs: 60 }),
+    ex('Pomalý pochod (Push Kick dril)', { sets: 1, reps: 20 }),
+    ex('Plank na předloktí', { kind: 'time', sets: 1, secs: 30 }),
+    ex('Stínování', { kind: 'time', sets: 2, secs: 60, load: 0.5, note: 'činka v každé ruce', rest: 30 }),
+  ]};
+  const silovy = { id: 'silovy', name: 'Domácí silový trénink', items: [
+    ex('Švihadlo', { kind: 'time', sets: 4, secs: 120, rest: 60 }),
+    ex('Stínování', { kind: 'time', sets: 4, secs: 60, load: 0.5, note: 'činka v každé ruce', rest: 30 }),
+    ex('KB Push Press 1 rukou', { load: 6, perSide: true, sideLabel: 'ruka' }),
+    ex('Hip Thrust o lavici', { load: 6 }),
+    ex('Glute Bridge (1 noha)', { perSide: true, sideLabel: 'noha' }),
+    ex('Vpěr s dotykem ramen', { sets: 1, reps: 30, note: 'dotyků celkem' }),
+    ex('Tricepsové kliky o lavici', {}),
+    ex('Tricepsová extenze za hlavou', { load: 6 }),
+    ex('Dead Bug', { reps: 20, load: 6 }),
+    ex('Bulharský dřep', { sets: 4, reps: 6, perSide: true, sideLabel: 'noha' }),
+    ex('Klasické dřepy', { sets: 1, reps: 20, load: 6 }),
+    ex('Přítahy KB v předklonu', { sets: 4, reps: 10, load: 6, perSide: true, sideLabel: 'ruka' }),
+    ex('Rumunský mrtvý tah', { load: 6 }),
+    ex('Kettlebell Halo', { load: 6, note: 'kroužků kolem hlavy' }),
+    ex('Copenhagen Plank', { kind: 'time', secs: 15, perSide: true, sideLabel: 'strana', rest: 30 }),
+  ]};
+  const gym = { id: 'posilovna', name: 'Posilovna', items: [
+    ex('Lopatkové shyby na hrazdě', { sets: 4, reps: 5, rest: 60 }),
+    ex('Negativní spouštění na hrazdě', { sets: 4, reps: 4, rest: 90 }),
+    ex('Military Press (osa)', { sets: 4, reps: 8, repsTo: 10, load: 15, rest: 90 }),
+  ]};
+  const run = () => ({ id: uid(), kind: 'check', name: 'Běh 5 km', mins: 40 });
+  const tpl = (id, opt) => ({ id: uid(), kind: 'tpl', tplId: id, optional: !!opt });
+  return {
+    v: 1,
+    templates: [zaver, silovy, gym],
+    week: [
+      [run(), tpl('zaver')],
+      [tpl('posilovna', true)],
+      [{ id: uid(), kind: 'check', name: 'MMA s trenérem', mins: 60 }],
+      [tpl('posilovna', true)],
+      [run(), tpl('zaver')],
+      [tpl('silovy')],
+      [tpl('silovy')],
+    ],
+    days: {},          // 'YYYY-MM-DD': { manual: 'done'|'missed', done: { itemId: true } }
+    workouts: [],      // dokončené tréninky (snímek sestavy + skutečnost)
+    metrics: [
+      { key: 'vaha', name: 'Hmotnost', unit: 'kg' },
+      { key: 'pas', name: 'Pas', unit: 'cm' },
+      { key: 'boky', name: 'Boky', unit: 'cm' },
+      { key: 'stehno', name: 'Stehno', unit: 'cm' },
+      { key: 'paze', name: 'Paže', unit: 'cm' },
+    ],
+    measures: [],      // { id, date, metric, value }
+    active: null,      // rozběhnutý trénink
+    settings: { sound: true, autoNext: true, lastBackup: null },
+  };
+}
+
+/* ---------- úložiště ---------- */
+let S;
+let loadProblem = false;
+function load() {
+  let raw = null;
+  try { raw = localStorage.getItem(KEY); } catch (e) {}
+  if (!raw) { S = defaultState(); return; }
+  try { const d = JSON.parse(raw); if (!validState(d)) throw new Error('schema'); S = normalize(d); }
+  catch (e) {
+    // poškozená data nepřepisuj: odlož je stranou a začni s výchozím plánem
+    try { localStorage.setItem(KEY + '.poskozeno-' + Date.now(), raw); } catch (e2) {}
+    S = defaultState(); loadProblem = true;
+  }
+}
+const ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
+const okId = x => typeof x === 'string' && ID_RE.test(x);
+const okDate = x => typeof x === 'string' && /^\d{4}-\d\d-\d\d$/.test(x) && !isNaN(parseKey(x));
+const isArr = Array.isArray, isObj = x => x && typeof x === 'object' && !isArr(x);
+// Přísná kontrola tvaru dat (import zálohy i načtení). ID smí obsahovat jen bezpečné znaky.
+function validState(d) {
+  try {
+    if (!isObj(d) || d.v !== 1) return false;
+    if (!isArr(d.templates) || !d.templates.every(t => isObj(t) && okId(t.id) && typeof t.name === 'string' && isArr(t.items)
+      && t.items.every(okEx))) return false;
+    if (!isArr(d.week) || d.week.length !== 7 || !d.week.every(okDay)) return false;
+    if (d.days != null && !isObj(d.days)) return false;
+    for (const [k, r] of Object.entries(d.days || {})) {
+      if (!/^\d{4}-\d\d-\d\d$/.test(k) || !isObj(r)) return false;
+      for (const f of ['done', 'partial']) if (r[f] != null && (!isObj(r[f]) || !Object.keys(r[f]).every(okId))) return false;
+      if (r.manual != null && r.manual !== 'done' && r.manual !== 'missed') return false;
+      if (r.items != null && !okDay(r.items)) return false;
+    }
+    if (!isArr(d.workouts) || !d.workouts.every(w => isObj(w) && okId(w.id) && okId(w.tplId) && (w.itemId == null || okId(w.itemId))
+      && okDate(w.date) && typeof w.start === 'number' && typeof w.end === 'number' && isArr(w.ex)
+      && w.ex.every(okWEx))) return false;
+    if (d.metrics != null && !(isArr(d.metrics) && d.metrics.every(m => isObj(m) && okId(m.key) && typeof m.name === 'string'))) return false;
+    if (d.measures != null && !(isArr(d.measures) && d.measures.every(m => isObj(m) && okId(m.id) && okId(m.metric) && okDate(m.date) && isNum(m.value)))) return false;
+    if (d.active != null) {
+      const a = d.active;
+      if (!isObj(a) || !isObj(a.w) || !okId(a.w.tplId) || !okDate(a.w.date) || !isNum(a.w.start) || !isArr(a.w.ex) || !a.w.ex.length || !a.w.ex.every(okWEx)) return false;
+      if (!Number.isInteger(a.i) || a.i < 0 || a.i >= a.w.ex.length || !isObj(a.cur) || !optNum(a.cur.reps) || !optNum(a.cur.load)) return false;
+      if (!['ready', 'work', 'rest', 'switch', 'end'].includes(a.phase)) return false;
+    }
+    return true;
+  } catch (e) { return false; }
+}
+const isNum = n => typeof n === 'number' && isFinite(n);
+const optNum = n => n == null || isNum(n);
+const optStr = x => x == null || typeof x === 'string';
+// cvik: všechna čísla musí být čísla, texty texty (vše, co jde do HTML)
+function okEx(e) {
+  return isObj(e) && okId(e.id) && typeof e.name === 'string' && (e.kind === 'reps' || e.kind === 'time')
+    && [e.sets, e.reps, e.secs, e.rest].every(isNum) && optNum(e.repsTo) && optNum(e.load)
+    && optStr(e.note) && optStr(e.sideLabel) && (e.replaced == null || okId(e.replaced));
+}
+function okDay(day) {
+  return isArr(day) && day.every(i => isObj(i) && okId(i.id) && optNum(i.mins)
+    && (i.kind === 'check' ? typeof i.name === 'string' : i.kind === 'tpl' && okId(i.tplId)));
+}
+function okWEx(x) {
+  return isObj(x) && okId(x.id) && typeof x.name === 'string' && (x.kind === 'reps' || x.kind === 'time') && okEx(x.plan)
+    && isArr(x.sets) && x.sets.every(st => isObj(st) && optNum(st.reps) && optNum(st.load) && optNum(st.secs) && optNum(st.start) && optNum(st.end))
+    && optNum(x.start) && optNum(x.end);
+}
+function normalize(d) {
+  const def = defaultState();
+  d.days = d.days || {}; d.metrics = d.metrics || def.metrics; d.measures = d.measures || [];
+  d.settings = Object.assign({ sound: true, autoNext: true, lastBackup: null }, d.settings || {});
+  if (d.active === undefined) d.active = null;
+  return d;
+}
+let saveFailed = false;
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(S)); saveFailed = false; }
+  catch (e) { if (!saveFailed) toast('Uložení se nepovedlo — udělej zálohu dat'); saveFailed = true; }
+}
+load();
+try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
+
+const tplById = id => S.templates.find(t => t.id === id);
+const itemLabel = it => it.kind === 'tpl' ? (tplById(it.tplId)?.name || 'Smazaná sestava') : it.name;
+
+/* ---------- stav dne ---------- */
+// Den si při prvním záznamu uloží svůj rozvrh; minulé dny se pak počítají z něj,
+// takže pozdější změna týdenního rozvrhu nepřepíše historii.
+const weekCopy = k => JSON.parse(JSON.stringify(S.week[wIdx(parseKey(k))] || []));
+function dayRec(k) { const r = S.days[k] || (S.days[k] = { done: {} }); if (!r.items || k >= dkey(new Date())) r.items = weekCopy(k); return r; }
+// po změně rozvrhu: dnešek a budoucí dny převezmou nový rozvrh, minulé dny zůstanou
+function refreshSnapshots() { const t = dkey(new Date()); for (const k of Object.keys(S.days)) if (k >= t) S.days[k].items = weekCopy(k); }
+function dayItems(k) { const r = S.days[k]; return r && r.items && k < dkey(new Date()) ? r.items : (S.week[wIdx(parseKey(k))] || []); }
+function dayStatus(k) {
+  const r = S.days[k] || {}; const items = dayItems(k);
+  if (r.manual) return r.manual;
+  const done = r.done || {};
+  const req = items.filter(i => !i.optional);
+  const nDone = items.filter(i => done[i.id]).length;
+  if (!items.length) return 'rest';
+  if (req.length && req.every(i => done[i.id])) return 'done';
+  if (!req.length) return nDone ? 'done' : 'rest';
+  if (nDone || Object.keys(r.partial || {}).length) return 'partial';
+  return 'plan';
+}
+const statusText = { done: 'Splněno', missed: 'Nesplněno', partial: 'Rozpracováno', rest: 'Volno', plan: 'Naplánováno' };
+
+/* ---------- UI: stav ---------- */
+let tab = 'den', selDay = dkey(new Date()), progEx = null;
+const $ = s => document.querySelector(s);
+function toast(t) { const el = document.createElement('div'); el.className = 'toast'; el.textContent = t; document.body.appendChild(el); setTimeout(() => el.remove(), 2200); }
+
+const ICON = {
+  den: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
+  prog: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5M4 19h16M8 15l4-4 3 3 5-6"/></svg>',
+  plan: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.2"/><circle cx="4.5" cy="12" r="1.2"/><circle cx="4.5" cy="18" r="1.2"/></svg>',
+};
+function renderTabs() {
+  $('#tabs').innerHTML = [['den', 'Trénink'], ['prog', 'Progres'], ['plan', 'Plán']].map(([k, l]) =>
+    `<button data-a="tab" data-v="${k}" class="${tab === k ? 'on' : ''}">${ICON[k]}${l}</button>`).join('');
+}
+function render() {
+  renderTabs();
+  $('#app').innerHTML = tab === 'den' ? viewDay() : tab === 'prog' ? viewProg() : viewPlan();
+  if (tab === 'prog') drawSparks();
+}
+
+/* ---------- obrazovka: Trénink (týden + den) ---------- */
+function exSummary(e) {
+  const t = e.kind === 'time' ? fmtSec(e.secs) : (e.reps + (isNum(e.repsTo) ? '–' + e.repsTo : ''));
+  return e.sets + ' × ' + t + (e.perSide ? ' (' + esc(e.sideLabel || 'strana') + ')' : '');
+}
+function viewDay() {
+  const sel = parseKey(selDay), mon = monday(sel), today = dkey(new Date());
+  let h = `<div class="top"><h1>${selDay === today ? 'Dnes' : DNY_DLOUHE[wIdx(sel)]}</h1><span class="tx2">${sel.getDate()}. ${sel.getMonth() + 1}. ${sel.getFullYear()}</span></div>`;
+  if (S.active) h += `<button class="btn acc big" data-a="resume" style="margin-bottom:12px">▶ Pokračovat v tréninku</button>`;
+  h += `<div class="weeknav"><button class="btn sm ghost" data-a="wk" data-v="-7">‹ Týden</button><span class="tx2 small">${fmtDate(dkey(mon))} – ${fmtDate(dkey(addDays(mon, 6)))}</span><button class="btn sm ghost" data-a="wk" data-v="7">Týden ›</button></div>`;
+  h += '<div class="week">';
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(mon, i), k = dkey(d), st = dayStatus(k);
+    h += `<button class="wd ${k === selDay ? 'sel' : ''} ${k === today ? 'today' : ''}" data-a="day" data-v="${k}"><span class="n">${DNY[i]}</span><span class="d">${d.getDate()}</span><span class="dot ${st}"></span></button>`;
+  }
+  h += '</div>';
+  const st = dayStatus(selDay), r = S.days[selDay] || {};
+  h += `<div class="status"><button class="btn ${r.manual === 'done' || (!r.manual && st === 'done') ? 'on-done' : ''}" data-a="mark" data-v="done">✓ Splněno</button><button class="btn ${r.manual === 'missed' ? 'on-missed' : ''}" data-a="mark" data-v="missed">✕ Nesplněno</button></div>`;
+  h += `<div class="tx3 small" style="text-align:center">${statusText[st]}${r.manual ? ' · ručně' : ''}</div>`;
+  const items = dayItems(selDay);
+  if (!items.length) h += '<div class="empty">Volný den 🌿</div>';
+  for (const it of items) {
+    const done = !!(r.done || {})[it.id];
+    if (it.kind === 'tpl') {
+      const t = tplById(it.tplId);
+      const w = S.workouts.filter(w => w.date === selDay && w.tplId === it.tplId).slice(-1)[0];
+      h += `<div class="item" style="flex-wrap:wrap"><button class="check ${done ? 'on' : ''}" data-a="tick" data-v="${it.id}">${done ? '✓' : ''}</button>
+        <div class="grow"><div class="t">${esc(itemLabel(it))}${it.optional ? ' <span class="pill">volitelně</span>' : ''}</div>
+        <div class="tx2 small">${t ? t.items.length + ' cviků' : ''}${w ? (done ? ' · hotovo za ' : ' · částečně, ') + fmtDur(w.end - w.start) : ''}</div></div>
+        ${t ? `<button class="btn acc" style="margin-top:6px" data-a="start" data-v="${it.id}">${w ? 'Cvičit znovu' : '▶ Začít trénink'}</button>` : ''}</div>`;
+    } else {
+      h += `<button class="item" style="width:100%;text-align:left" data-a="tick" data-v="${it.id}"><span class="check ${done ? 'on' : ''}">${done ? '✓' : ''}</span>
+        <span class="grow"><span class="t" style="display:block">${esc(it.name)}${it.optional ? ' <span class="pill">volitelně</span>' : ''}</span><span class="tx2 small">${isNum(it.mins) ? it.mins + ' min · ' : ''}${done ? 'splněno' : 'klepni až bude hotovo'}</span></span></button>`;
+    }
+  }
+  const ws = S.workouts.filter(w => w.date === selDay);
+  if (ws.length) {
+    h += '<h2>Záznam</h2>';
+    for (const w of ws) h += workoutCard(w);
+  }
+  return h;
+}
+function workoutCard(w) {
+  let h = `<div class="card"><div class="row"><b class="grow">${esc(w.tplName)}</b><span class="pill">⏱ ${fmtDur(w.end - w.start)}</span></div><table style="margin-top:8px"><tr><th>Cvik</th><th>Série</th><th>Čas</th></tr>`;
+  for (const e of w.ex) {
+    const sets = e.sets.map(s => e.kind === 'time' ? fmtSec(Math.round(s.secs)) : (s.reps + (s.load ? ' (' + fmtNum(s.load) + ' kg)' : ''))).join(', ');
+    h += `<tr><td>${esc(e.name)}</td><td class="tx2">${e.skipped && !e.sets.length ? 'přeskočeno' : sets}</td><td class="tx2">${e.start && e.end ? fmtDur(e.end - e.start) : '–'}</td></tr>`;
+  }
+  return h + '</table></div>';
+}
+
+/* ---------- obrazovka: Progres ---------- */
+function viewProg() {
+  let h = '<div class="top"><h1>Progres</h1></div>';
+  const today = new Date(), mon = monday(today);
+  // tréninky za posledních 8 týdnů
+  const weeks = [];
+  for (let i = 7; i >= 0; i--) {
+    const m = addDays(mon, -7 * i); let n = 0;
+    for (let d = 0; d < 7; d++) if (dayStatus(dkey(addDays(m, d))) === 'done') n++;
+    weeks.push({ m, n, cur: i === 0 });
+  }
+  const max = Math.max(4, ...weeks.map(w => w.n));
+  const total = S.workouts.length;
+  const totalMs = S.workouts.reduce((a, w) => a + (w.end - w.start), 0);
+  let streak = 0; for (let i = weeks.length - 2; i >= 0 && weeks[i].n > 0; i--) streak++;
+  if (weeks[weeks.length - 1].n > 0) streak++;
+  h += `<div class="stat"><div class="card"><div class="v">${weeks[7].n}</div><div class="tx2 small">dní tento týden</div></div><div class="card"><div class="v">${total}</div><div class="tx2 small">tréninků v appce</div></div><div class="card"><div class="v">${Math.round(totalMs / 3600000 * 10) / 10}</div><div class="tx2 small">hodin cvičení</div></div></div>`;
+  h += `<div class="card"><div class="row"><b class="grow">Splněné dny po týdnech</b><span class="tx2 small">${streak} týd. v řadě</span></div><div class="bars">${weeks.map(w => `<div class="${w.cur ? 'cur' : ''}"><span>${w.n || ''}</span><b style="height:${w.n / max * 100}%"></b><span>${w.m.getDate()}.${w.m.getMonth() + 1}.</span></div>`).join('')}</div></div>`;
+
+  // cviky
+  h += '<h2>Cviky</h2>';
+  const names = {};
+  for (const w of S.workouts) for (const e of w.ex) if (e.sets.length) names[e.id] = e.name;
+  for (const t of S.templates) for (const e of t.items) if (names[e.id]) names[e.id] = e.name;
+  const ids = Object.keys(names);
+  if (!ids.length) h += '<div class="empty">Po prvním tréninku tu uvidíš vývoj zátěže, opakování a časů.</div>';
+  else {
+    if (!progEx || !names[progEx]) progEx = ids[0];
+    h += `<select class="inp" data-a="progEx">${ids.map(id => `<option value="${id}" ${id === progEx ? 'selected' : ''}>${esc(names[id])}</option>`).join('')}</select>`;
+    const hist = [];
+    for (const w of S.workouts) for (const e of w.ex) if (e.id === progEx && e.sets.length) hist.push({ date: w.date, e });
+    const isTime = hist.length && hist[hist.length - 1].e.kind === 'time';
+    const pts = hist.map(x => isTime ? x.e.sets.reduce((a, s) => a + (s.secs || 0), 0)
+      : x.e.sets.reduce((a, s) => a + (s.reps || 0) * (s.load || 1), 0));
+    h += `<div class="card"><div class="tx2 small">${isTime ? 'Celkový čas (s)' : 'Objem (opakování × kg, bez zátěže jen opakování)'}</div><svg class="spark" data-pts="${pts.join(',')}"></svg>
+      <table><tr><th>Datum</th><th>Série</th><th>Trvání</th></tr>${hist.slice(-12).reverse().map(x => `<tr><td>${fmtDate(x.date)}</td><td>${x.e.sets.map(s => isTime ? fmtSec(Math.round(s.secs)) : (s.reps + (s.load ? ' (' + fmtNum(s.load) + ' kg)' : ''))).join(', ')}</td><td class="tx2">${x.e.start && x.e.end ? fmtDur(x.e.end - x.e.start) : ''}</td></tr>`).join('')}</table></div>`;
+  }
+
+  // měření
+  h += `<h2>Měření</h2><button class="btn acc" data-a="addMeasure">＋ Zapsat měření</button>`;
+  for (const m of S.metrics) {
+    const list = S.measures.filter(x => x.metric === m.key).sort((a, b) => a.date < b.date ? -1 : 1);
+    if (!list.length) continue;
+    const last = list[list.length - 1], first = list[0];
+    const diff = list.length > 1 ? last.value - first.value : null;
+    h += `<div class="card"><div class="row"><b class="grow">${esc(m.name)}</b><span style="font-size:22px;font-weight:700">${fmtNum(last.value)} <span class="tx2 small">${esc(m.unit)}</span></span></div>
+      <div class="tx2 small">${fmtDate(last.date)}${diff != null ? ' · od ' + fmtDate(first.date) + ': ' + (diff > 0 ? '+' : '') + fmtNum(diff) + ' ' + esc(m.unit) : ''}</div>
+      ${list.length > 1 ? `<svg class="spark" data-pts="${list.map(x => x.value).join(',')}"></svg>` : ''}
+      <details style="margin-top:6px"><summary class="tx2 small">Všechny záznamy</summary><table>${list.slice().reverse().map(x => `<tr><td>${fmtDate(x.date)} ${x.date.slice(0, 4)}</td><td>${fmtNum(x.value)} ${esc(m.unit)}</td><td style="text-align:right"><button class="btn sm ghost danger" data-a="delMeasure" data-v="${x.id}">Smazat</button></td></tr>`).join('')}</table></details></div>`;
+  }
+  if (!S.measures.length) h += '<div class="empty">Zatím žádná měření.</div>';
+  return h;
+}
+function drawSparks() {
+  document.querySelectorAll('svg.spark').forEach(svg => {
+    const p = (svg.dataset.pts || '').split(',').filter(x => x !== '').map(Number);
+    if (p.length < 2) { svg.style.display = 'none'; return; }
+    const W = 300, H = 70, mn = Math.min(...p), mx = Math.max(...p), rg = mx - mn || 1;
+    const xy = p.map((v, i) => [i / (p.length - 1) * (W - 8) + 4, H - 6 - (v - mn) / rg * (H - 12)]);
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('preserveAspectRatio', 'none');
+    svg.innerHTML = `<polyline fill="none" stroke="#c6f432" stroke-width="2.5" stroke-linejoin="round" vector-effect="non-scaling-stroke" points="${xy.map(a => a.join(',')).join(' ')}"/>` +
+      `<circle cx="${xy[xy.length - 1][0]}" cy="${xy[xy.length - 1][1]}" r="4" fill="#c6f432"/>`;
+  });
+}
+
+/* ---------- obrazovka: Plán ---------- */
+function viewPlan() {
+  let h = '<div class="top"><h1>Plán</h1></div>';
+  h += '<h2>Sestavy</h2>';
+  for (const t of S.templates) {
+    h += `<button class="item" style="width:100%;text-align:left" data-a="editTpl" data-v="${t.id}"><span class="grow"><span class="t" style="display:block">${esc(t.name)}</span><span class="tx2 small">${t.items.length} cviků</span></span><span class="tx3" style="font-size:24px">›</span></button>`;
+  }
+  h += `<button class="btn ghost" data-a="newTpl">＋ Nová sestava</button>`;
+  h += '<h2>Týdenní rozvrh</h2>';
+  for (let i = 0; i < 7; i++) {
+    h += `<div class="card"><div class="row"><b class="grow">${DNY_DLOUHE[i]}</b><button class="btn sm" data-a="addDayItem" data-v="${i}">＋ Přidat</button></div><div class="chips">`;
+    for (const it of S.week[i]) h += `<span class="chip">${esc(itemLabel(it))}${it.optional ? ' <span class="tx3 small">(volit.)</span>' : ''}<button data-a="delDayItem" data-v="${i}:${it.id}" aria-label="Odebrat">✕</button></span>`;
+    if (!S.week[i].length) h += '<span class="tx3 small">volno</span>';
+    h += '</div></div>';
+  }
+  const lb = S.settings.lastBackup;
+  h += `<h2>Záloha dat</h2><div class="card"><div class="tx2 small" style="margin-bottom:10px">Data jsou jen v tomto telefonu. Zálohuj je občas do Souborů / iCloud Drive. ${lb ? 'Poslední záloha: ' + fmtDate(dkey(new Date(lb))) : 'Zatím žádná záloha.'}</div>
+    <div class="btns"><button class="btn acc" data-a="export">Zálohovat</button><button class="btn" data-a="import">Obnovit ze zálohy</button></div></div>`;
+  h += `<h2>Nastavení</h2><div class="card">
+    <label class="row" style="min-height:48px"><span class="grow">Zvuk na konci intervalu</span><input type="checkbox" data-a="setSound" ${S.settings.sound ? 'checked' : ''} style="width:26px;height:26px"></label>
+    <label class="row" style="min-height:48px"><span class="grow">Po pauze sama spustit další časovanou sérii</span><input type="checkbox" data-a="setAuto" ${S.settings.autoNext ? 'checked' : ''} style="width:26px;height:26px"></label></div>`;
+  h += `<div class="tx3 small" style="text-align:center;margin-top:20px">Trénink · verze 1 · data jen v zařízení</div>`;
+  return h;
+}
+
+/* ---------- bottom sheet ---------- */
+function sheet(html) { $('#sheet').innerHTML = `<div class="sheet-bg" data-a="closeSheetBg"><div class="sheet">${html}</div></div>`; }
+function closeSheet() { $('#sheet').innerHTML = ''; }
+
+function sheetTpl(id) {
+  const t = tplById(id);
+  let h = `<h3>Sestava</h3><label class="fld"><span>Název</span><input class="inp" id="tplName" value="${esc(t.name)}"></label>`;
+  h += '<div style="margin-top:6px">';
+  t.items.forEach((e, i) => {
+    h += `<div class="ex-row"><div class="mv"><button data-a="mvEx" data-v="${id}:${i}:-1" aria-label="Nahoru">▲</button><button data-a="mvEx" data-v="${id}:${i}:1" aria-label="Dolů">▼</button></div>
+      <button class="grow" style="text-align:left;min-height:56px" data-a="editEx" data-v="${id}:${e.id}"><div style="font-weight:600">${esc(e.name)}</div><div class="tx2 small">${exSummary(e)}${e.load ? ' · ' + fmtNum(e.load) + ' kg' : ' · vlastní váha'}</div></button>
+      <span class="tx3">›</span></div>`;
+  });
+  h += `</div><div class="btns" style="margin-top:14px"><button class="btn" data-a="addEx" data-v="${id}">＋ Přidat cvik</button></div>
+    <div class="btns" style="margin-top:10px"><button class="btn ghost danger" data-a="delTpl" data-v="${id}">Smazat sestavu</button><button class="btn acc" data-a="saveTplName" data-v="${id}">Hotovo</button></div>`;
+  sheet(h);
+}
+function sheetEx(tplId, exId) {
+  const t = tplById(tplId); const e = exId ? t.items.find(x => x.id === exId) : ex('', {});
+  const isNew = !exId;
+  let h = `<h3>${isNew ? 'Nový cvik' : 'Upravit cvik'}</h3>
+  <label class="fld"><span>Název</span><input class="inp" id="fName" value="${esc(e.name)}" placeholder="např. Výpady"></label>
+  <div class="fld"><span>Typ</span><div class="seg" id="fKind"><button data-a="seg" data-v="reps" class="${e.kind === 'reps' ? 'on' : ''}">Opakování</button><button data-a="seg" data-v="time" class="${e.kind === 'time' ? 'on' : ''}">Na čas</button></div></div>
+  <div class="grid2"><label class="fld"><span>Série</span><input class="inp" id="fSets" type="number" inputmode="numeric" min="1" value="${e.sets}"></label>
+  <label class="fld" id="fRepsW" style="${e.kind === 'time' ? 'display:none' : ''}"><span>Opakování</span><input class="inp" id="fReps" type="number" inputmode="numeric" min="1" value="${e.reps}"></label>
+  <label class="fld" id="fSecsW" style="${e.kind === 'reps' ? 'display:none' : ''}"><span>Sekund</span><input class="inp" id="fSecs" type="number" inputmode="numeric" min="5" step="5" value="${e.secs}"></label></div>
+  <div class="grid2"><label class="fld"><span>Zátěž (kg)</span><input class="inp" id="fLoad" type="number" inputmode="decimal" step="0.5" placeholder="vlastní váha" value="${e.load ?? ''}"></label>
+  <label class="fld"><span>Pauza (s)</span><input class="inp" id="fRest" type="number" inputmode="numeric" min="0" step="5" value="${e.rest}"></label></div>
+  <label class="row" style="min-height:52px;margin:10px 0"><span class="grow">Každá strana zvlášť</span><input type="checkbox" id="fSide" ${e.perSide ? 'checked' : ''} style="width:26px;height:26px"></label>
+  <label class="fld"><span>Poznámka</span><input class="inp" id="fNote" value="${esc(e.note)}" placeholder="technika, pomůcky…"></label>
+  <div class="btns" style="margin-top:14px">${isNew ? '' : `<button class="btn ghost danger" data-a="delEx" data-v="${tplId}:${e.id}">Odebrat</button><button class="btn" data-a="replaceEx" data-v="${tplId}:${e.id}">Nahradit…</button>`}</div>
+  <div class="btns" style="margin-top:10px"><button class="btn ghost" data-a="backTpl" data-v="${tplId}">Zpět</button><button class="btn acc" data-a="saveEx" data-v="${tplId}:${isNew ? '' : e.id}">Uložit</button></div>`;
+  sheet(h);
+}
+function readExForm(base) {
+  const kind = document.querySelector('#fKind .on')?.dataset.v || 'reps';
+  const num = (id, d) => { const v = parseFloat(String($(id).value).replace(',', '.')); return isNaN(v) ? d : v; };
+  const loadV = String($('#fLoad').value).trim();
+  return Object.assign(base, {
+    name: $('#fName').value.trim() || 'Cvik', kind,
+    sets: Math.max(1, Math.round(num('#fSets', 1))), reps: Math.max(1, Math.round(num('#fReps', 10))),
+    secs: Math.max(5, Math.round(num('#fSecs', 60))), rest: Math.max(0, Math.round(num('#fRest', 45))),
+    load: loadV === '' ? null : num('#fLoad', null), perSide: $('#fSide').checked,
+    note: $('#fNote').value.trim(),
+  });
+}
+
+/* ---------- akce ---------- */
+document.addEventListener('click', ev => {
+  const el = ev.target.closest('[data-a]'); if (!el) return;
+  const a = el.dataset.a, v = el.dataset.v;
+  if (a === 'closeSheetBg') { if (ev.target === el) closeSheet(); return; }
+  if (a === 'setSound' || a === 'setAuto' || a === 'progEx') return;
+  ev.preventDefault();
+  unlockAudio();
+  const act = ACT[a]; if (act) act(v, el);
+});
+document.addEventListener('change', ev => {
+  const el = ev.target; const a = el.dataset.a;
+  if (a === 'progEx') { progEx = el.value; render(); }
+  if (a === 'setSound') { S.settings.sound = el.checked; save(); }
+  if (a === 'setAuto') { S.settings.autoNext = el.checked; save(); }
+});
+const ACT = {
+  tab: v => { tab = v; window.scrollTo(0, 0); render(); },
+  wk: v => { selDay = dkey(addDays(parseKey(selDay), +v)); render(); },
+  day: v => { selDay = v; render(); },
+  mark: v => { const r = dayRec(selDay); r.manual = r.manual === v ? undefined : v; save(); render(); },
+  tick: v => { const r = dayRec(selDay); r.done = r.done || {}; r.done[v] = !r.done[v]; if (!r.done[v]) delete r.done[v]; if (r.manual === 'missed' && r.done[v]) delete r.manual; save(); render(); },
+  start: v => {
+    const it = dayItems(selDay).find(i => i.id === v); if (!it) return;
+    if (S.active) { if (!confirm('Už máš rozběhnutý trénink. Zahodit ho a začít nový?')) return; }
+    startWorkout(it.tplId, selDay, it.id);
+  },
+  resume: () => openRun(),
+  progEx: () => {},
+  addMeasure: () => {
+    sheet(`<h3>Zapsat měření</h3><label class="fld"><span>Co</span><select class="inp" id="mMetric">${S.metrics.map(m => `<option value="${m.key}">${esc(m.name)} (${esc(m.unit)})</option>`).join('')}<option value="__new">＋ Jiné…</option></select></label>
+      <label class="fld"><span>Hodnota</span><input class="inp" id="mVal" type="number" inputmode="decimal" step="0.1" placeholder="0,0"></label>
+      <label class="fld"><span>Datum</span><input class="inp" id="mDate" type="date" value="${dkey(new Date())}"></label>
+      <div class="btns" style="margin-top:14px"><button class="btn ghost" data-a="closeSheet">Zrušit</button><button class="btn acc" data-a="saveMeasure">Uložit</button></div>`);
+  },
+  saveMeasure: () => {
+    let metric = $('#mMetric').value;
+    const val = parseFloat(String($('#mVal').value).replace(',', '.'));
+    if (isNaN(val)) { toast('Zadej hodnotu'); return; }
+    if (metric === '__new') {
+      const name = prompt('Název měření (např. Obvod hrudníku)'); if (!name) return;
+      const unit = prompt('Jednotka', 'cm') || '';
+      metric = 'm' + uid(); S.metrics.push({ key: metric, name, unit });
+    }
+    S.measures.push({ id: uid(), date: $('#mDate').value || dkey(new Date()), metric, value: val });
+    save(); closeSheet(); render(); toast('Uloženo');
+  },
+  delMeasure: v => { if (!confirm('Smazat záznam?')) return; S.measures = S.measures.filter(x => x.id !== v); save(); render(); },
+  closeSheet: () => closeSheet(),
+  editTpl: v => sheetTpl(v),
+  newTpl: () => { const t = { id: 't' + uid(), name: 'Nová sestava', items: [] }; S.templates.push(t); save(); render(); sheetTpl(t.id); },
+  saveTplName: v => { const t = tplById(v); t.name = $('#tplName').value.trim() || t.name; save(); closeSheet(); render(); },
+  delTpl: v => {
+    if (!confirm('Smazat sestavu? Historie tréninků zůstane.')) return;
+    S.templates = S.templates.filter(t => t.id !== v);
+    S.week = S.week.map(d => d.filter(i => !(i.kind === 'tpl' && i.tplId === v)));
+    refreshSnapshots(); save(); closeSheet(); render();
+  },
+  mvEx: v => { const [tid, i, d] = v.split(':'); const t = tplById(tid); const a = +i, b = a + +d; if (b < 0 || b >= t.items.length) return; [t.items[a], t.items[b]] = [t.items[b], t.items[a]]; save(); sheetTpl(tid); },
+  editEx: v => { const [tid, eid] = v.split(':'); sheetEx(tid, eid); },
+  addEx: v => sheetEx(v, null),
+  backTpl: v => sheetTpl(v),
+  seg: (v, el) => { el.parentNode.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === el)); $('#fRepsW').style.display = v === 'time' ? 'none' : ''; $('#fSecsW').style.display = v === 'reps' ? 'none' : ''; },
+  saveEx: v => {
+    const [tid, eid] = v.split(':'); const t = tplById(tid);
+    if (eid) readExForm(t.items.find(x => x.id === eid)); else t.items.push(readExForm(ex('', {})));
+    save(); sheetTpl(tid); render();
+  },
+  delEx: v => { const [tid, eid] = v.split(':'); const t = tplById(tid); if (!confirm('Odebrat cvik ze sestavy? Historie zůstane.')) return; t.items = t.items.filter(x => x.id !== eid); save(); sheetTpl(tid); render(); },
+  replaceEx: v => {
+    const [tid, eid] = v.split(':'); const t = tplById(tid); const old = t.items.find(x => x.id === eid);
+    const name = prompt('Čím cvik „' + old.name + '“ nahradit?'); if (!name) return;
+    const n = Object.assign({}, old, { id: uid(), name: name.trim(), replaced: old.id });
+    t.items[t.items.indexOf(old)] = n; save(); sheetEx(tid, n.id); render(); toast('Nahrazeno — uprav série a zátěž');
+  },
+  addDayItem: v => {
+    const i = +v;
+    sheet(`<h3>${DNY_DLOUHE[i]} — přidat</h3>
+      ${S.templates.map(t => `<button class="btn" style="margin:8px 0" data-a="pickDay" data-v="${i}:tpl:${t.id}">${esc(t.name)}</button>`).join('')}
+      <label class="fld"><span>Nebo jiná aktivita (jen odškrtnutí)</span><input class="inp" id="dName" placeholder="např. Plavání"></label>
+      <label class="row" style="min-height:52px;margin:10px 0"><span class="grow">Volitelné</span><input type="checkbox" id="dOpt" style="width:26px;height:26px"></label>
+      <div class="btns"><button class="btn ghost" data-a="closeSheet">Zrušit</button><button class="btn acc" data-a="pickDay" data-v="${i}:check:">Přidat aktivitu</button></div>`);
+  },
+  pickDay: v => {
+    const [i, kind, tid] = v.split(':'); const opt = $('#dOpt')?.checked || false;
+    if (kind === 'tpl') S.week[+i].push({ id: uid(), kind: 'tpl', tplId: tid, optional: opt });
+    else { const n = $('#dName').value.trim(); if (!n) { toast('Napiš název'); return; } S.week[+i].push({ id: uid(), kind: 'check', name: n, optional: opt }); }
+    refreshSnapshots(); save(); closeSheet(); render();
+  },
+  delDayItem: v => { const [i, id] = v.split(':'); S.week[+i] = S.week[+i].filter(x => x.id !== id); refreshSnapshots(); save(); render(); },
+  export: () => exportData(),
+  import: () => importData(),
+};
+
+/* ---------- záloha ---------- */
+async function exportData() {
+  const data = JSON.stringify(Object.assign({}, S, { exportedAt: new Date().toISOString() }), null, 1);
+  const name = 'trenink-zaloha-' + dkey(new Date()) + '.json';
+  const file = new File([data], name, { type: 'application/json' });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: name });
+    } else {
+      const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = name; document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    }
+    S.settings.lastBackup = Date.now(); save(); render();
+  } catch (e) { if (e.name !== 'AbortError') toast('Zálohu se nepodařilo uložit'); }
+}
+function importData() {
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'application/json,.json';
+  inp.onchange = async () => {
+    try {
+      const d = JSON.parse(await inp.files[0].text());
+      if (!validState(d)) throw new Error('format');
+      const when = typeof d.exportedAt === 'string' && !isNaN(Date.parse(d.exportedAt)) ? fmtDate(dkey(new Date(d.exportedAt))) : '?';
+      if (!confirm('Nahradit současná data zálohou z ' + when + '?')) return;
+      // dosavadní data odlož stranou, než je přepíšeš
+      try { localStorage.setItem(KEY + '.pred-obnovou', JSON.stringify(S)); }
+      catch (e) { toast('Nelze odložit současná data — obnova zrušena. Nejdřív zálohuj.'); return; }
+      delete d.exportedAt; S = normalize(d);
+      save(); if (saveFailed) { load(); toast('Obnova se nepovedla, data beze změny'); render(); return; }
+      render(); toast('Obnoveno');
+    } catch (e) { toast('Soubor není platná záloha'); }
+  };
+  inp.click();
+}
+
+/* =========================================================
+   PRŮVODCE TRÉNINKEM
+   A = S.active = { w: záznam, i: index cviku, s: série, side: 0|1,
+     phase: 'ready'|'work'|'rest'|'switch'|'end', deadline, left, paused, total }
+   Časy se počítají z uloženého termínu, ne z tiků — přežijí zamčení.
+   ========================================================= */
+function startWorkout(tplId, date, itemId) {
+  const t = tplById(tplId); if (!t || !t.items.length) { toast('Sestava je prázdná'); return; }
+  const now = Date.now();
+  const w = { id: uid(), date, itemId, tplId, tplName: t.name, start: now, end: null,
+    ex: t.items.map(e => ({ id: e.id, name: e.name, kind: e.kind, plan: JSON.parse(JSON.stringify(e)), sets: [], start: null, end: null, skipped: false })) };
+  S.active = { w, i: 0, s: 0, side: 0, phase: 'ready', deadline: null, left: null, paused: false, readyAt: now,
+    cur: { reps: t.items[0].reps, load: t.items[0].load } };
+  save(); openRun();
+}
+const A = () => S.active;
+const P = () => A().w.ex[A().i].plan;
+let tickT = null, wakeLock = null, lastBeepSec = null;
+
+async function requestWake() {
+  try { if ('wakeLock' in navigator && !wakeLock && document.visibilityState === 'visible') { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; if (S.active) renderRun(); }); } }
+  catch (e) { wakeLock = null; }
+}
+function releaseWake() { try { wakeLock && wakeLock.release(); } catch (e) {} wakeLock = null; }
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.active && $('#run').innerHTML) { requestWake(); tick(); } });
+
+/* zvuk */
+let actx = null;
+function unlockAudio() {
+  try { if (!actx) { const C = window.AudioContext || window.webkitAudioContext; if (C) actx = new C(); } if (actx && actx.state === 'suspended') actx.resume(); } catch (e) {}
+}
+function beep(freq = 880, dur = 0.12, vol = 0.35) {
+  if (!S.settings.sound || !actx) return;
+  try { const o = actx.createOscillator(), g = actx.createGain(); o.frequency.value = freq; o.type = 'sine';
+    g.gain.setValueAtTime(vol, actx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + dur);
+    o.connect(g).connect(actx.destination); o.start(); o.stop(actx.currentTime + dur + 0.02); } catch (e) {}
+}
+function endSignal() { beep(1046, 0.5, 0.5); setTimeout(() => beep(1318, 0.6, 0.5), 220); const r = $('.run'); if (r) { r.classList.remove('flash'); void r.offsetWidth; r.classList.add('flash'); } }
+
+function openRun() { requestWake(); renderRun(); clearInterval(tickT); tickT = setInterval(tick, 250); }
+function closeRun() { clearInterval(tickT); tickT = null; releaseWake(); $('#run').innerHTML = ''; render(); }
+
+function setTarget(e, side) { return e.kind === 'time' ? e.secs : e.reps; }
+function totalSides(e) { return e.kind === 'time' && e.perSide ? 2 : 1; }
+
+function beginWork() {
+  const a = A(), e = P(), ex = a.w.ex[a.i]; const now = Date.now();
+  if (!ex.start) ex.start = now;
+  if (a.side === 0) { a.setStart = now; a.sideSecs = []; }
+  a.phase = 'work'; a.paused = false; a.deadline = now + e.secs * 1000; a.workStart = now; lastBeepSec = null;
+  save(); renderRun();
+}
+function finishSet(now, actualSecs) {
+  const a = A(), e = P(), ex = a.w.ex[a.i];
+  now = now || Date.now();
+  if (!ex.start) ex.start = a.readyAt || now;
+  if (e.kind === 'time') {
+    a.sideSecs = a.sideSecs || [];
+    if (a.sideSecs.length <= a.side) a.sideSecs.push(actualSecs != null ? actualSecs : e.secs);
+    if (a.side + 1 < totalSides(e)) { a.side++; a.phase = 'switch'; a.deadline = now + 5000; a.paused = false; save(); renderRun(); return; }
+    ex.sets.push({ secs: a.sideSecs.reduce((x, y) => x + y, 0), start: a.setStart || now, end: now }); a.sideSecs = [];
+  } else {
+    ex.sets.push({ reps: a.cur.reps, load: a.cur.load, start: a.readyAt || now, end: now });
+  }
+  ex.end = now; a.side = 0;
+  if (ex.sets.length < e.sets) {
+    if (e.rest > 0) { a.phase = 'rest'; a.deadline = now + e.rest * 1000; a.paused = false; lastBeepSec = null; }
+    else { a.phase = 'ready'; a.readyAt = now; if (e.kind === 'time' && S.settings.autoNext && Date.now() - now < 2000) { save(); beginWork(); return; } }
+  } else nextExercise(now);
+  save(); renderRun();
+}
+function nextExercise(now) {
+  const a = A();
+  // najdi další nedokončený cvik
+  let j = a.i + 1; const n = a.w.ex.length;
+  for (let k = 0; k < n; k++, j++) { const ex = a.w.ex[j % n]; if (ex.sets.length < ex.plan.sets && !ex.skipped) break; }
+  if (a.w.ex.every(x => x.sets.length >= x.plan.sets || x.skipped)) { a.phase = 'end'; return; }
+  goEx(j % n, now);
+}
+function goEx(i, now) {
+  const a = A(); a.i = i; a.side = 0; a.phase = 'ready'; a.readyAt = now || Date.now(); a.paused = false; a.deadline = null;
+  const e = P(); const ex = a.w.ex[i]; const last = ex.sets[ex.sets.length - 1];
+  a.cur = { reps: last ? last.reps : e.reps, load: last ? last.load : e.load };
+  ex.skipped = false;
+}
+function tick() {
+  const a = A(); if (!a || !$('#run').innerHTML) return;
+  if (a.paused || !a.deadline) { updClock(); return; }
+  const now = Date.now(); const left = a.deadline - now;
+  const sec = Math.ceil(left / 1000);
+  if ((a.phase === 'work' || a.phase === 'rest' || a.phase === 'switch') && sec <= 3 && sec >= 1 && sec !== lastBeepSec) { lastBeepSec = sec; beep(a.phase === 'work' ? 660 : 520, 0.1, 0.3); }
+  if (left <= 0) {
+    const ended = a.deadline; a.deadline = null; lastBeepSec = null;
+    if (a.phase === 'work') { endSignal(); finishSet(ended); return; }
+    if (a.phase === 'switch') { beep(880, 0.25); a.phase = 'work'; a.deadline = ended + P().secs * 1000; save(); renderRun(); return; }
+    if (a.phase === 'rest') {
+      endSignal(); a.phase = 'ready'; a.readyAt = ended;
+      // automatický start jen když je appka právě na očích (ne po návratu z uspání)
+      if (P().kind === 'time' && S.settings.autoNext && now - ended < 2000) { beginWork(); return; }
+      save(); renderRun(); return;
+    }
+  }
+  updTimer(left); updClock();
+}
+function updClock() { const c = $('#rClock'); const a = A(); if (c && a) c.textContent = fmtDur(Date.now() - a.w.start); }
+function updTimer(left) {
+  const el = $('#rBig'); if (!el) return; const a = A();
+  const s = Math.max(0, Math.ceil(left / 1000)); el.textContent = s >= 60 ? Math.floor(s / 60) + ':' + pad(s % 60) : s;
+  const ring = $('#rRing'); if (ring) { const tot = a.phase === 'work' ? P().secs : a.phase === 'switch' ? 5 : P().rest; ring.style.strokeDashoffset = 2 * Math.PI * 46 * (1 - Math.max(0, left) / (tot * 1000)); }
+}
+function ringHTML(color, label, sub) {
+  return `<div class="ring"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" fill="none" stroke="#252934" stroke-width="6"/><circle id="rRing" cx="50" cy="50" r="46" fill="none" stroke="${color}" stroke-width="6" stroke-linecap="round" stroke-dasharray="${2 * Math.PI * 46}" stroke-dashoffset="0"/></svg><div class="in"><div class="lbl">${label}</div><div class="big" id="rBig" style="color:${color}"></div><div class="tx2 small">${sub || ''}</div></div></div>`;
+}
+function renderRun() {
+  const a = A(); if (!a) return closeRun();
+  const w = a.w, n = w.ex.length, ex = w.ex[a.i], e = ex.plan;
+  const doneEx = w.ex.filter(x => x.sets.length >= x.plan.sets).length;
+  let top = `<div class="run-top"><button class="x" data-a="rMenu" aria-label="Menu">☰</button><div class="grow"><div style="font-weight:600">${esc(w.tplName)}</div><div class="tx2 small">${doneEx}/${n} cviků · <span id="rClock" class="clock">${fmtDur(Date.now() - w.start)}</span></div></div>
+    <span class="pill" title="Displej">${wakeLock ? '☀︎ svítí' : '☾ může zhasnout'}</span></div><div class="prog"><i style="width:${doneEx / n * 100}%"></i></div>`;
+  let main = '', bot = '', cls = '';
+  if (a.phase === 'end') {
+    main = `<div class="lbl">Hotovo</div><div class="ex-name">Skvělá práce! 💪</div><div class="big" style="font-size:64px;margin:14px 0">${fmtDur(Date.now() - w.start)}</div><div class="tx2">${w.ex.filter(x => x.sets.length).length} cviků · ${w.ex.reduce((s, x) => s + x.sets.length, 0)} sérií</div>`;
+    bot = `<button class="btn ok big" data-a="rFinish">✓ Uložit trénink</button><button class="btn ghost" data-a="rList">Zpět k přehledu</button>`;
+  } else {
+    const nextEx = w.ex.find((x, k) => k > a.i && x.sets.length < x.plan.sets && !x.skipped);
+    const meta = `<div class="ex-meta">${e.load != null ? `<span class="pill">${fmtNum(a.phase === 'ready' && e.kind === 'reps' ? a.cur.load : e.load)} kg</span>` : '<span class="pill">vlastní váha</span>'}${e.perSide ? `<span class="pill">každá ${esc(e.sideLabel || 'strana')}</span>` : ''}${e.note ? `<span class="pill">${esc(e.note)}</span>` : ''}</div>`;
+    const dots = `<div class="setdots">${Array.from({ length: e.sets }, (_, k) => `<i class="${k < ex.sets.length ? 'on' : k === ex.sets.length ? 'cur' : ''}"></i>`).join('')}</div>`;
+    const head = `<div class="lbl">Cvik ${a.i + 1}/${n} · Série ${Math.min(ex.sets.length + 1, e.sets)}/${e.sets}</div><div class="ex-name">${esc(e.name)}</div>${meta}${dots}`;
+    if (a.phase === 'rest') {
+      cls = 'restbg';
+      main = `<div class="lbl">Pauza</div><div class="ex-name" style="font-size:22px">${esc(e.name)} — další série ${ex.sets.length + 1}/${e.sets}</div>${ringHTML('#5aa9ff', 'odpočinek', '')}`;
+      bot = `<div class="btns"><button class="btn" data-a="rAdd" data-v="15">+15 s</button><button class="btn" data-a="rPause">${a.paused ? '▶ Pokračovat' : '❚❚ Pauza'}</button></div><button class="btn acc big" data-a="rSkipRest">Pokračovat hned ›</button>`;
+    } else if (a.phase === 'switch') {
+      main = head + ringHTML('#ffb547', 'Přepni stranu', '');
+      bot = `<button class="btn acc big" data-a="rSwitchNow">Začít druhou stranu ›</button>`;
+    } else if (e.kind === 'time') {
+      if (a.phase === 'work') {
+        main = head + ringHTML('#c6f432', e.perSide ? (a.side ? '2. strana' : '1. strana') : 'zbývá', fmtSec(e.secs));
+        bot = `<div class="btns"><button class="btn" data-a="rPause">${a.paused ? '▶ Pokračovat' : '❚❚ Pauza'}</button><button class="btn" data-a="rDoneEarly">Ukončit sérii</button></div>`;
+      } else {
+        const u = t => `<span class="tx2" style="font-size:28px"> ${t}</span>`;
+        const m = Math.floor(e.secs / 60), ss = e.secs % 60;
+        main = head + `<div class="big" style="margin:18px 0">${m ? m + u('min') : ''}${ss ? (m ? ' ' : '') + ss + u('s') : ''}</div>`;
+        bot = `<button class="btn acc big" data-a="rStart">▶ Start</button>`;
+      }
+    } else {
+      main = head + `<div class="step"><button data-a="rReps" data-v="-1">−</button><div class="v">${a.cur.reps}${isNum(e.repsTo) && a.cur.reps === e.reps ? '–' + e.repsTo : ''}<span class="u">opakování${e.perSide ? ' / ' + esc(e.sideLabel || 'strana') : ''}</span></div><button data-a="rReps" data-v="1">+</button></div>`
+        + `<div class="step"><button data-a="rLoad" data-v="-0.5">−</button><div class="v" style="font-size:22px">${a.cur.load != null ? fmtNum(a.cur.load) + ' kg' : 'bez zátěže'}<span class="u">zátěž</span></div><button data-a="rLoad" data-v="0.5">+</button></div>`;
+      bot = `<button class="btn ok big" data-a="rDone">✓ Série hotová</button>`;
+    }
+    bot = `<div class="next">${nextEx ? 'Potom: ' + esc(nextEx.name) : 'Poslední cvik'}</div>` + bot + `<div class="btns"><button class="btn ghost sm" data-a="rList">☰ Přehled cviků</button><button class="btn ghost sm" data-a="rSkip">Přeskočit cvik ›</button></div>`;
+  }
+  $('#run').innerHTML = `<div class="run ${cls}">${top}<div class="run-main">${main}</div><div class="run-bot">${bot}</div></div>`;
+  if (a.deadline || a.paused) updTimer(a.paused ? a.left : a.deadline - Date.now());
+}
+function sheetRunList() {
+  const a = A(); const w = a.w;
+  sheet(`<h3>Přehled cviků</h3><div class="list">${w.ex.map((x, k) => {
+    const done = x.sets.length >= x.plan.sets;
+    return `<button class="li" data-a="rGo" data-v="${k}"><span class="check ${done ? 'on' : ''}">${done ? '✓' : x.sets.length ? x.sets.length : ''}</span><span class="grow"><span style="display:block;font-weight:${k === a.i ? 700 : 500}">${esc(x.name)}${k === a.i ? ' ←' : ''}</span><span class="tx2 small">${exSummary(x.plan)}${x.skipped ? ' · přeskočeno' : ''}</span></span><span class="tx2 small">${x.start && x.end ? fmtDur(x.end - x.start) : ''}</span></button>`;
+  }).join('')}</div><div class="btns" style="margin-top:14px"><button class="btn" data-a="closeSheet">Zavřít</button><button class="btn ok" data-a="rEnd">Ukončit trénink</button></div>`);
+}
+Object.assign(ACT, {
+  rStart: () => beginWork(),
+  rPause: () => { const a = A(); if (a.paused) { a.deadline = Date.now() + a.left; a.paused = false; } else { a.left = a.deadline - Date.now(); a.paused = true; a.deadline = null; } save(); renderRun(); },
+  rAdd: v => { const a = A(); if (a.paused) a.left += v * 1000; else a.deadline += v * 1000; save(); tick(); },
+  rSkipRest: () => { const a = A(); a.phase = 'ready'; a.readyAt = Date.now(); a.deadline = null; a.paused = false; if (P().kind === 'time' && S.settings.autoNext) { beginWork(); return; } save(); renderRun(); },
+  rSwitchNow: () => { const a = A(); a.phase = 'work'; a.deadline = Date.now() + P().secs * 1000; a.paused = false; save(); renderRun(); },
+  rDoneEarly: () => { const a = A(); const e = P(); const now = Date.now();
+    const left = a.paused ? a.left : a.deadline - now;
+    const done = Math.max(0, Math.round((e.secs * 1000 - left) / 1000));
+    a.paused = false; a.deadline = null;
+    // zapíše skutečně odcvičený čas (po stranách) a pokračuje stejnou cestou jako po doběhnutí
+    finishSet(now, done); },
+  rDone: () => finishSet(),
+  rReps: v => { const a = A(); a.cur.reps = Math.max(0, a.cur.reps + +v); save(); renderRun(); },
+  rLoad: v => { const a = A(); const n = Math.max(0, Math.round(((a.cur.load || 0) + +v) * 10) / 10); a.cur.load = n || null; save(); renderRun(); },
+  rSkip: () => { const a = A(); a.w.ex[a.i].skipped = true; nextExercise(Date.now()); save(); renderRun(); },
+  rList: () => { const a = A(); if (a.phase === 'end') { const k = a.w.ex.findIndex(x => x.sets.length < x.plan.sets); goEx(k >= 0 ? k : 0); } sheetRunList(); renderRun(); },
+  rGo: v => { goEx(+v); save(); closeSheet(); renderRun(); },
+  rMenu: () => sheet(`<h3>Trénink</h3><button class="btn" style="margin:8px 0" data-a="rList">☰ Přehled cviků</button><button class="btn" style="margin:8px 0" data-a="rHide">Skrýt (běží dál)</button><button class="btn ok" style="margin:8px 0" data-a="rEnd">Ukončit a uložit</button><button class="btn ghost danger" style="margin:8px 0" data-a="rDiscard">Zahodit trénink</button><button class="btn ghost" style="margin:8px 0" data-a="closeSheet">Zavřít</button>`),
+  rHide: () => { closeSheet(); closeRun(); },
+  rEnd: () => { closeSheet(); A().phase = 'end'; save(); renderRun(); },
+  rDiscard: () => { if (!confirm('Opravdu zahodit? Nic se neuloží.')) return; S.active = null; save(); closeSheet(); closeRun(); },
+  rFinish: () => {
+    const a = A(); const w = a.w; w.end = Date.now();
+    S.workouts.push(w);
+    const complete = w.ex.every(x => x.sets.length >= x.plan.sets);
+    w.complete = complete;
+    if (w.ex.some(x => x.sets.length) && w.itemId) {
+      const r = dayRec(w.date); r.done = r.done || {};
+      if (complete) { r.done[w.itemId] = true; if (r.partial) delete r.partial[w.itemId]; if (r.manual === 'missed') delete r.manual; }
+      else { r.partial = r.partial || {}; r.partial[w.itemId] = true; }
+    }
+    S.active = null; save(); closeRun(); selDay = w.date; tab = 'den'; render();
+    toast(complete ? 'Trénink uložen ✓' : 'Uloženo jako částečný trénink — odškrtni ručně, pokud chceš');
+  },
+});
+
+/* ---------- start ---------- */
+render();
+if (loadProblem) toast('Uložená data nešla načíst — obnov je ze zálohy (Plán → Záloha dat)');
+if (S.active) openRun();
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>
