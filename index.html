@@ -288,7 +288,7 @@ function defaultState() {
     metrics: defaultMetrics(),
     measures: [],      // { id, date, metric, value, session? }
     active: null,      // rozběhnutý trénink
-    settings: { sound: true, autoStart: false, lastBackup: null, hideInstall: false },
+    settings: { sound: true, lastBackup: null, hideInstall: false },
   };
 }
 
@@ -335,10 +335,17 @@ function okDay(day) {
   return isArr(day) && day.every(i => isObj(i) && okId(i.id) && optNum(i.mins)
     && (i.kind === 'check' ? typeof i.name === 'string' : i.kind === 'tpl' && okId(i.tplId)));
 }
+function okPend(p) {
+  if (p == null) return true;
+  if (!isObj(p) || !isObj(p.cur) || !optNum(p.cur.reps) || !optNum(p.cur.load)) return false;
+  if (p.phase != null && !['work', 'switch'].includes(p.phase)) return false;
+  if (!(p.side == null || p.side === 0 || p.side === 1) || ![p.left, p.elapsed, p.setStart].every(optNum)) return false;
+  return p.sideSecs == null || (isArr(p.sideSecs) && p.sideSecs.every(isNum));
+}
 function okWEx(x) {
   return isObj(x) && okId(x.id) && typeof x.name === 'string' && (x.kind === 'reps' || x.kind === 'time') && okEx(x.plan)
     && isArr(x.sets) && x.sets.every(st => isObj(st) && optNum(st.reps) && optNum(st.load) && optNum(st.secs) && optNum(st.start) && optNum(st.end))
-    && optNum(x.start) && optNum(x.end) && optNum(x.activeMs) && (x.trial == null || typeof x.trial === 'boolean');
+    && optNum(x.start) && optNum(x.end) && optNum(x.activeMs) && (x.trial == null || typeof x.trial === 'boolean') && okPend(x.pend);
 }
 const FEELS = { good: 'Skvěle', ok: 'Normálně', hard: 'Těžce' };
 const okFeel = f => f == null || f === 'good' || f === 'ok' || f === 'hard';
@@ -380,8 +387,8 @@ function validState(d) {
 function normalize(d) {
   if (!d.templates.some(t => t.id === TRIAL)) d.templates.push(trialTpl());
   d.days = d.days || {}; d.metrics = d.metrics || defaultMetrics(); d.measures = d.measures || [];
-  d.settings = Object.assign({ sound: true, autoStart: false, lastBackup: null, hideInstall: false }, d.settings || {});
-  delete d.settings.autoNext; // v1: automatický start po pauze — nově vždy vypnuto, dokud ho Tereza nezapne
+  d.settings = Object.assign({ sound: true, lastBackup: null, hideInstall: false }, d.settings || {});
+  delete d.settings.autoNext; delete d.settings.autoStart; // nic se nespouští samo (rozhodnutí Terezy)
   if (d.active === undefined) d.active = null;
   return d;
 }
@@ -647,8 +654,7 @@ function viewPlan() {
     <button class="row" data-a="export"><span class="grow head">Zálohovat</span>${I('r', 'chev')}</button><button class="row" data-a="import"><span class="grow head">Obnovit ze zálohy</span>${I('r', 'chev')}</button></div>`;
   h += `<h2 class="cap">Nastavení</h2><div class="surf">
     <label class="row tgl"><span class="grow">Zvuky (20 s, 5 s, gong)</span><input type="checkbox" switch data-a="setSound" ${S.settings.sound ? 'checked' : ''}></label>
-    <button class="row" data-a="testSound"><span class="grow head">Přehrát ukázku zvuků</span>${I('play', 'chev')}</button>
-    <label class="row tgl"><span class="grow">Po odpočinku spustit další časovou sérii samo</span><input type="checkbox" switch data-a="setAuto" ${S.settings.autoStart ? 'checked' : ''}></label></div>`;
+    <button class="row" data-a="testSound"><span class="grow head">Přehrát ukázku zvuků</span>${I('play', 'chev')}</button></div>`;
   h += `<div class="foot tx3" style="text-align:center;margin-top:24px">Trénink 2 · data jen v zařízení</div>`;
   return h;
 }
@@ -754,7 +760,6 @@ document.addEventListener('change', ev => {
   const el = ev.target; const a = el.dataset.a;
   if (a === 'progEx') { progEx = el.value; render(); }
   if (a === 'setSound') { S.settings.sound = el.checked; save(); }
-  if (a === 'setAuto') { S.settings.autoStart = el.checked; save(); }
 });
 const ACT = {
   tab: v => { tab = v; window.scrollTo(0, 0); render(); },
@@ -986,7 +991,7 @@ function endSignal(kind) {
   setTimeout(() => { const r = $('.ring'); if (r) { r.classList.remove('pulse'); void r.offsetWidth; r.classList.add('pulse'); } }, 30);
 }
 
-function openRun() { requestWake(); checkStale(); renderRun(); clearInterval(tickT); tickT = setInterval(tick, 250); }
+function openRun() { requestWake(); for (let g = 0; g < 200 && A() && A().deadline && A().deadline <= Date.now(); g++) expire(Date.now()); if (!A()) return; checkStale(); renderRun(); clearInterval(tickT); tickT = setInterval(tick, 250); }
 function closeRun() { clearInterval(tickT); tickT = null; releaseWake(); $('#run').innerHTML = ''; render(); }
 const totalSides = e => e.kind === 'time' && e.perSide ? 2 : 1;
 function lastActivity(w) { let t = w.start; for (const x of w.ex) for (const s of x.sets) if (s.end > t) t = s.end; return t; }
@@ -997,7 +1002,7 @@ function checkStale() {
   const idle = Date.now() - Math.max(lastActivity(a.w), a.readyAt || 0, a.endedAt || 0);
   if (idle < 3 * 3600e3) return;
   const done = a.w.ex.reduce((s, x) => s + x.sets.length, 0);
-  sheet(sheetHead('Neuložený trénink', ['closeSheet', 'Pokračovat']) + `<div class="foot" style="margin:4px 4px 16px">${esc(a.w.tplName)} z ${fmtDate(a.w.date)} zůstal otevřený (${done} sérií). Uložit ho s časem podle poslední série, nebo zahodit?</div>
+  sheet(sheetHead('Neuložený trénink', ['closeSheet', 'Pokračovat']) + `<div class="foot" style="margin:4px 4px 16px">${esc(a.w.tplName)} z ${fmtDate(a.w.date)} zůstal otevřený (${done} sérií). Uložit ho s časem podle poslední série, nebo zahodit? Rozpracovaná série se nezapočítá.</div>
     <button class="btn b1" data-a="rSaveStale">Uložit</button><div style="text-align:center;margin-top:16px"><button class="b3 danger" data-a="rDiscard">Zahodit</button></div>`);
 }
 
@@ -1019,19 +1024,19 @@ function finishSet(now, actualSecs) {
     if (a.sideSecs.length <= a.side) a.sideSecs.push(actualSecs != null ? actualSecs : e.secs);
     if (a.side + 1 < totalSides(e)) {
       a.side++; a.phase = 'switch'; a.paused = false;
-      a.deadline = live && S.settings.autoStart ? now + 5000 : null; // druhá strana čeká na klepnutí (samo jen s autoStart)
+      a.deadline = null; // druhá strana čeká na klepnutí
       save(); renderRun(); return;
     }
     x.sets.push({ secs: a.sideSecs.reduce((p, q) => p + q, 0), start: a.setStart || now, end: now }); a.sideSecs = [];
   } else {
     x.sets.push({ reps: a.cur.reps, load: a.cur.load, start: a.setStart || a.readyAt || now, end: now }); a.setStart = null;
   }
-  x.end = now; a.side = 0;
+  x.end = now; a.side = 0; a.phase = 'ready'; a.deadline = null; a.paused = false; a.setStart = null; a.sideSecs = []; // série je hotová, nic rozpracovaného
   // odpočinek cviku běží po každé sérii, i po poslední (= pauza před dalším cvikem); po úplně poslední sérii tréninku ne
   const more = x.sets.length < e.sets;
   const anyLeft = more || nextIdx() !== -1;
   if (e.rest > 0 && anyLeft) { a.phase = 'rest'; a.restNext = !more; a.deadline = now + e.rest * 1000; a.paused = false; lastBeepSec = null; }
-  else if (more) { a.phase = 'ready'; a.readyAt = now; if (e.kind === 'time' && S.settings.autoStart && live) { save(); beginWork(); return; } }
+  else if (more) { a.phase = 'ready'; a.readyAt = now; }
   else nextExercise(now);
   save(); renderRun();
 }
@@ -1048,7 +1053,6 @@ function afterRest(ended, live) {
   a.restNext = false; a.deadline = null; a.paused = false;
   if (toNext) { nextExercise(ended); return; }
   a.phase = 'ready'; a.readyAt = ended;
-  if (P().kind === 'time' && S.settings.autoStart && live) beginWork();
 }
 // Čistý čas na cviku: počítá se jen doba, kdy byl cvik na obrazovce (při přepínání mezi cviky se nesčítá).
 function bank(now) {
@@ -1070,12 +1074,53 @@ function nextExercise(now) {
   for (let k = 0; k < n; k++, j++) { const x = a.w.ex[j % n]; if (x.sets.length < x.plan.sets && !x.skipped) break; }
   goEx(j % n, now);
 }
+// Odchod z cviku: zapamatuj dnešní opakování/zátěž a rozpracovanou sérii (časová se pozastaví)
+function parkCur() {
+  const a = A(), x = a.w.ex[a.i], e = x.plan, now = Date.now();
+  const p = { cur: { reps: a.cur.reps, load: a.cur.load } };
+  if (a.phase === 'work' && e.kind === 'time') Object.assign(p, { phase: 'work', side: a.side || 0, sideSecs: (a.sideSecs || []).slice(), left: Math.max(0, a.paused ? a.left : a.deadline - now), setStart: a.setStart });
+  else if (a.phase === 'work') Object.assign(p, { phase: 'work', elapsed: Math.max(0, now - a.setStart) });
+  else if (a.phase === 'switch') Object.assign(p, { phase: 'switch', side: a.side || 0, sideSecs: (a.sideSecs || []).slice(), setStart: a.setStart });
+  x.pend = p;
+}
 function goEx(i, now) {
   // doba uspání se nepřičte žádnému cviku
-  const a = A(); bank(now); a.restNext = false; a.curSince = Date.now(); a.i = i; a.side = 0; a.phase = 'ready'; a.readyAt = now || Date.now(); a.paused = false; a.deadline = null; a.sideSecs = [];
+  const a = A(); if (i !== a.i && a.phase !== 'end') parkCur(); bank(now); a.restNext = false; a.curSince = Date.now(); a.i = i; a.side = 0; a.phase = 'ready'; a.readyAt = now || Date.now(); a.paused = false; a.deadline = null; a.sideSecs = [];
   const e = P(); const x = a.w.ex[i]; const last = x.sets[x.sets.length - 1];
   a.cur = { reps: last ? last.reps : e.reps, load: last ? last.load : e.load };
+  const p = x.pend; delete x.pend;
+  if (p) {
+    if (p.cur) a.cur = { reps: p.cur.reps, load: p.cur.load };
+    if (p.phase === 'work' && e.kind === 'time') Object.assign(a, { phase: 'work', paused: true, left: p.left, side: p.side, sideSecs: p.sideSecs, setStart: p.setStart });
+    else if (p.phase === 'work') Object.assign(a, { phase: 'work', setStart: Date.now() - p.elapsed });
+    else if (p.phase === 'switch') Object.assign(a, { phase: 'switch', side: p.side, sideSecs: p.sideSecs, setStart: p.setStart });
+  }
   x.skipped = false;
+}
+// rozpracované série (aktuální i odložené) jako záznamy k případnému započítání při ukončení
+function partials(now) {
+  const a = A(), out = [], sum = v => (v || []).reduce((p, q) => p + q, 0);
+  a.w.ex.forEach((x, k) => {
+    const e = x.plan; let st = null;
+    const ran = left => Math.max(0, Math.min(e.secs, Math.round((e.secs * 1000 - left) / 1000)));
+    if (k === a.i && (a.phase === 'work' || a.phase === 'switch')) {
+      if (e.kind === 'time') { const s = sum(a.sideSecs) + (a.phase === 'work' ? ran(a.paused ? a.left : a.deadline - now) : 0); if (s > 0) st = { secs: s, start: a.setStart || now, end: now }; }
+      else st = { reps: a.cur.reps, load: a.cur.load, start: a.setStart, end: now };
+    } else if (k !== a.i && x.pend && x.pend.phase) {
+      const p = x.pend;
+      if (e.kind === 'time') { const s = sum(p.sideSecs) + (p.phase === 'work' ? ran(p.left) : 0); if (s > 0) st = { secs: s, start: p.setStart || now, end: now }; }
+      else st = { reps: p.cur.reps, load: p.cur.load, start: now - p.elapsed, end: now };
+    }
+    if (st) out.push([x, st]);
+  });
+  return out;
+}
+function endNow(keep) {
+  const a = A(), now = Date.now();
+  if (keep) for (const [x, st] of partials(now)) { x.sets.push(st); x.end = now; }
+  for (const x of a.w.ex) delete x.pend;
+  a.sideSecs = []; a.setStart = null; a.side = 0;
+  closeSheet(); markEnd(now); save(); renderRun();
 }
 function tick() {
   const a = A(); if (!a || !$('#run').innerHTML) return;
@@ -1099,22 +1144,16 @@ function tick() {
     if (a.phase === 'rest' && left > 900 && tot > 8 && crossed(5)) clack(1, 0.3);
     prevSec = sec;
   }
-  if (left <= 0) {
-    const ended = a.deadline; a.deadline = null; lastBeepSec = null;
-    const live = now - ended < LIVE;
-    if (a.phase === 'work') { if (live) endSignal('work'); finishSet(ended); return; }
-    if (a.phase === 'switch') {
-      if (live && S.settings.autoStart) { ding(); a.phase = 'work'; a.deadline = ended + P().secs * 1000; }
-      save(); renderRun(); return;
-    }
-    if (a.phase === 'rest') {
-      if (live) endSignal('rest');
-      afterRest(ended, live);
-      if (a.phase !== 'work') { save(); renderRun(); }
-      return;
-    }
-  }
+  if (left <= 0) { expire(now); return; }
   updTimer(left); updClock();
+}
+// doběhlý termín: konec série / odpočinku (i zpětně po návratu z uspání)
+function expire(now) {
+  const a = A(); const ended = a.deadline; a.deadline = null; lastBeepSec = null;
+  const live = now - ended < LIVE;
+  if (a.phase === 'work') { if (live) endSignal('work'); finishSet(ended); return; }
+  if (a.phase === 'rest') { if (live) endSignal('rest'); afterRest(ended, live); }
+  save(); renderRun();
 }
 function updUp() { const el = $('#rUp'); const a = A(); if (el && a && a.phase === 'work' && a.setStart) el.textContent = fmtDur(Date.now() - a.setStart); }
 function updClock() { const c = $('#rClock'); const a = A(); if (c && a) c.textContent = fmtDur((a.phase === 'end' && a.endedAt ? a.endedAt : Date.now()) - a.w.start); }
@@ -1224,7 +1263,7 @@ function saveWorkout(endAt) {
   const ok = commit(() => {
     const a = A(); const w = a.w; w.end = endAt;
     if (isNum(a.curSince)) stopBank(Math.max(a.curSince, w.end));
-    w.note = note || undefined;
+    w.note = note || undefined; for (const y of w.ex) delete y.pend;
     complete = w.ex.every(y => y.trial || y.sets.length >= y.plan.sets || y.skipped) && w.ex.some(y => y.sets.length); // vynechaný cvik ani nevyzkoušený bonus nevadí
     w.complete = complete;
     if (w.ex.some(y => y.sets.length) && w.itemId) {
@@ -1252,19 +1291,24 @@ Object.assign(ACT, {
   rDone: () => finishSet(),
   rReps: v => { const a = A(); a.cur.reps = Math.max(0, (a.cur.reps || 0) + +v); save(); renderRun(); },
   rLoad: v => { const a = A(); const n = Math.max(0, Math.round(((a.cur.load || 0) + +v) * 10) / 10); a.cur.load = n || null; save(); renderRun(); },
-  rSkip: () => { const a = A(); a.w.ex[a.i].skipped = true; nextExercise(Date.now()); save(); closeSheet(); renderRun(); },
+  rSkip: () => { const a = A(); a.w.ex[a.i].skipped = true; Object.assign(a, { phase: 'ready', deadline: null, paused: false, sideSecs: [], setStart: null, side: 0 }); nextExercise(Date.now()); save(); closeSheet(); renderRun(); },
   rList: () => { const a = A(); if (a.phase === 'end') { a.endedAt = null; const k = a.w.ex.findIndex(y => y.sets.length < y.plan.sets); goEx(k >= 0 ? k : 0); save(); renderRun(); } sheetRunList(); },
-  rGo: v => { goEx(+v); save(); closeSheet(); renderRun(); },
+  rGo: v => { if (+v === A().i && A().phase !== 'end') { closeSheet(); return; } goEx(+v); save(); closeSheet(); renderRun(); },
   rVids: () => { const a = A(); if ((a.phase === 'work' || a.phase === 'rest') && a.deadline && !a.paused) { a.left = a.deadline - Date.now(); a.paused = true; a.deadline = null; save(); renderRun(); } else if (a.phase === 'switch' && a.deadline) { a.deadline = null; save(); renderRun(); }
     const e = P(); sheet(sheetHead('Videa', ['closeSheet', 'Zavřít']) + `<div class="surf list">${(e.videos || []).filter(okUrl).map(u => `<a class="row" data-vid href="${esc(u)}" target="_blank" rel="noopener noreferrer" style="color:var(--tx);text-decoration:none">${I('play')}<span class="grow"><span class="head" style="display:block">${esc(hostLabel(u))}</span><span class="foot" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(u)}</span></span>${I('r', 'chev')}</a>`).join('')}</div><div class="foot" style="margin:8px 4px">Video se otevře v aplikaci nebo v Safari. Běžící minutka se pozastaví.</div>`); },
   rSets: v => { const a = A(); const x = a.w.ex[a.i]; x.plan.sets = Math.max(1, x.sets.length, x.plan.sets + +v);
+    if (a.phase === 'rest') a.restNext = x.sets.length >= x.plan.sets;
     if (x.sets.length >= x.plan.sets && (a.phase === 'ready' || a.phase === 'rest')) { nextExercise(Date.now()); closeSheet(); }
     else sheetRunList();
     save(); renderRun(); },
   rSecs: v => { const e = P(); e.secs = Math.max(5, e.secs + +v); save(); renderRun(); },
   rMenu: () => sheet(sheetHead('Trénink') + `<div class="surf list"><button class="row" data-a="rList"><span class="grow head">Přehled cviků</span>${I('r', 'chev')}</button><button class="row" data-a="rHide"><span class="grow head">Skrýt (běží dál)</span>${I('r', 'chev')}</button><button class="row" data-a="rEnd"><span class="grow head">Ukončit a uložit</span>${I('r', 'chev')}</button></div><div style="text-align:center;margin-top:24px"><button class="b3 danger" data-a="rDiscard">Zahodit trénink</button></div>`),
   rHide: () => { closeSheet(); closeRun(); },
-  rEnd: () => { closeSheet(); markEnd(); save(); renderRun(); },
+  rEnd: () => { const ps = partials(Date.now()); if (!ps.length) return endNow(false);
+    sheet(sheetHead('Rozpracovaná série', ['closeSheet', 'Zpět']) + `<div class="foot" style="margin:4px 4px 16px">${ps.map(([x, st]) => esc(x.name) + ' · ' + (x.kind === 'time' ? st.secs + ' s' : setTxt('reps', st))).join('<br>')}<br>Započítat do tréninku?</div>
+      <button class="btn b1" data-a="rEndKeep">Započítat a ukončit</button><div style="text-align:center;margin-top:16px"><button class="b3" data-a="rEndDrop">Nezapočítat</button></div>`); },
+  rEndKeep: () => endNow(true),
+  rEndDrop: () => endNow(false),
   rDiscard: () => { if (!confirm('Opravdu zahodit? Nic se neuloží.')) return; S.active = null; save(); closeSheet(); closeRun(); },
   rFeel: v => { const a = A(); a.w.feel = a.w.feel === v ? undefined : v; save(); renderRun(); },
   rFinish: () => saveWorkout(),
