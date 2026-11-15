@@ -653,7 +653,7 @@ function viewDay() {
     h += `<div class="surf" style="margin-top:16px"><button class="row" data-a="startTrial"><span class="grow"><span class="head" style="display:block">Vyzkoušet</span><span class="foot">${pl(trN, 'nový cvik', 'nové cviky', 'nových cviků')} · nabídnou se i na konci tréninku</span></span><span class="b3 b3i" style="padding:0">Začít ${I('r')}</span></button></div>`;
   const rs = reasonTxt(r);
   h += `<div class="foot" style="text-align:center;margin:12px 0">${statusText[st]}${rs ? ' · ' + esc(rs) : ''}</div>`;
-  if ((st === 'missed' || st === 'off') && !r.manual) h += `<div class="btns" style="justify-content:center"><button class="b3" data-a="reasonAsk" data-v="${selDay}">${rs ? 'Změnit důvod' : 'Doplnit důvod'}</button></div>`;
+  if ((st === 'missed' || st === 'off') && (!r.manual || r.manual === 'missed')) h += `<div class="btns" style="justify-content:center"><button class="b3" data-a="reasonAsk" data-v="${selDay}">${rs ? 'Změnit důvod' : 'Doplnit důvod'}</button></div>`;
 
   h += suppCard(selDay);
   const ws = S.workouts.filter(w => w.date === selDay);
@@ -786,6 +786,7 @@ function viewPlan() {
     <button class="row" data-a="export"><span class="grow head">Zálohovat</span>${I('r', 'chev')}</button><button class="row" data-a="import"><span class="grow head">Obnovit ze zálohy</span>${I('r', 'chev')}</button></div>`;
   h += `<h2 class="cap">Nastavení</h2><div class="surf">
     <label class="row tgl"><span class="grow">Zvuky (20 s, 5 s, gong)</span><input type="checkbox" switch data-a="setSound" ${S.settings.sound ? 'checked' : ''}></label>
+    <label class="row tgl"><span class="grow">Zvuky i v tichém režimu<span class="foot" style="display:block">přehraje i při vypnutém zvonění; hudba se může ztlumit</span></span><input type="checkbox" switch data-a="setSilent" ${S.settings.soundSilent ? 'checked' : ''}></label>
     <button class="row" data-a="testSound"><span class="grow head">Přehrát ukázku zvuků</span>${I('play', 'chev')}</button></div>`;
   h += `<div class="foot tx3" style="text-align:center;margin-top:24px">Trénink 2 · data jen v zařízení</div>`;
   return h;
@@ -879,7 +880,7 @@ document.addEventListener('click', ev => {
   const el = ev.target.closest('[data-a]'); if (!el) return;
   const a = el.dataset.a, v = el.dataset.v;
   if (a === 'closeSheetBg') { if (ev.target === el) closeSheet(); return; }
-  if (a === 'setSound' || a === 'setAuto' || a === 'progEx') return;
+  if (a === 'setSound' || a === 'setSilent' || a === 'setAuto' || a === 'progEx') return;
   ev.preventDefault();
   unlockAudio();
   // akce průvodce (rXxx) bez běžícího tréninku (např. data změněná v jiném okně): jen zavři průvodce
@@ -895,6 +896,7 @@ document.addEventListener('change', ev => {
   const el = ev.target; const a = el.dataset.a;
   if (a === 'progEx') { progEx = el.value; render(); }
   if (a === 'setSound') { S.settings.sound = el.checked; save(); }
+  if (a === 'setSilent') { S.settings.soundSilent = el.checked; save(); unlockAudio(); }
 });
 const ACT = {
   tab: v => { tab = v; window.scrollTo(0, 0); render(); },
@@ -967,8 +969,8 @@ const ACT = {
     sheet(sheetHead('Prohodit ' + fmtDayShort(k), ['dEdit', 'Zpět', k]) + `<div class="foot" style="margin:0 4px 12px">Plány obou dnů se vymění. Týdenní rozvrh zůstane.</div><div class="surf list">${opts.map(o => { const its = dayItems(o); const lk = its.some(i => locked(o, i)); return `<button class="row" data-a="dSwapTo" data-v="${k}:${o}" ${lk ? 'disabled style="opacity:.4"' : ''}><span class="grow"><span class="head" style="display:block">${fmtDayShort(o)}</span><span class="foot">${esc(itemsTxt(its))}</span></span>${I('swap', 'chev')}</button>`; }).join('')}</div>`); },
   dSwapTo: v => { const [a, b] = v.split(':'); if (!editable(a) || !editable(b) || a === b) return;
     const ia = dayItems(a), ib = dayItems(b); if (ia.some(i => locked(a, i)) || ib.some(i => locked(b, i))) { toast('Rozcvičený trénink nejde přehodit'); return; }
-    const mv = (its, from) => JSON.parse(JSON.stringify(its)).map(i => Object.assign(i, { id: uid(), from: i.from === undefined ? from : i.from }));
-    commit(() => { setDay(a, mv(ib, b)); setDay(b, mv(ia, a)); dayRec(a).swapWith = b; dayRec(b).swapWith = a; });
+    const mv = (its, from, to) => JSON.parse(JSON.stringify(its)).map(i => { Object.assign(i, { id: uid(), from: i.from === undefined ? from : i.from }); if (i.from === to) delete i.from; return i; });
+    commit(() => { setDay(a, mv(ib, b, a)); setDay(b, mv(ia, a, b)); dayRec(a).swapWith = b; dayRec(b).swapWith = a; });
     closeSheet(); render(); toast('Prohozeno: ' + fmtDayShort(a) + ' ↔ ' + fmtDayShort(b)); },
   dReset: k => { const r = S.days[k]; if (!r || !editable(k)) return;
     const ks = [k]; if (r.swapWith && (S.days[r.swapWith] || {}).swapWith === k && editable(r.swapWith)) ks.push(r.swapWith);
@@ -977,10 +979,10 @@ const ACT = {
     closeSheet(); render(); toast('Vráceno podle rozvrhu'); },
   reasonAsk: v => sheetReason(v),
   reasonOther: v => sheetReason(v.split(':')[0], true),
-  reasonSet: v => { const [k, why] = v.split(':'); if (!REASONS[why]) return; commit(() => { const r = dayRec(k); r.reason = why; delete r.reasonNote; delete r.reasonSkip; }); closeSheet(); render(); setTimeout(askReason, 300); },
-  reasonSave: v => { const t = ($('#rsNote').value || '').trim().slice(0, 80); commit(() => { const r = dayRec(v); r.reason = 'jine'; if (t) r.reasonNote = t; else delete r.reasonNote; delete r.reasonSkip; }); closeSheet(); render(); setTimeout(askReason, 300); },
+  reasonSet: v => { const [k, why] = v.split(':'); if (!REASONS[why]) return; commit(() => { const r = dayRec(k); r.reason = why; delete r.reasonNote; delete r.reasonSkip; if (r.manual === 'missed') delete r.manual; }); closeSheet(); render(); setTimeout(askReason, 300); },
+  reasonSave: v => { const t = ($('#rsNote').value || '').trim().slice(0, 80); commit(() => { const r = dayRec(v); r.reason = 'jine'; if (t) r.reasonNote = t; else delete r.reasonNote; delete r.reasonSkip; if (r.manual === 'missed') delete r.manual; }); closeSheet(); render(); setTimeout(askReason, 300); },
   reasonLater: () => { commit(() => { for (let k = pendingReason(), g = 0; k && g < 8; k = pendingReason(), g++) dayRec(k).reasonSkip = true; }); closeSheet(); render(); }, // „Teď ne“ = neptat se na tyto dny (důvod jde doplnit v dni)
-  tick: v => { if (selDay > today()) return; const r = dayRec(selDay); setTimeout(() => { if (dayStatus(selDay) === 'done' && (r.reason || r.reasonSkip)) { delete r.reason; delete r.reasonNote; delete r.reasonSkip; save(); render(); } }, 0); r.done = r.done || {}; r.done[v] = !r.done[v]; if (!r.done[v]) delete r.done[v]; if (r.manual === 'missed' && r.done[v]) delete r.manual; save(); render(); },
+  tick: v => { if (selDay > today()) return; const r = dayRec(selDay); r.done = r.done || {}; r.done[v] = !r.done[v]; if (!r.done[v]) delete r.done[v]; if (r.done[v]) { delete r.reason; delete r.reasonNote; delete r.reasonSkip; if (r.manual === 'missed') delete r.manual; } save(); render(); },
   start: v => {
     if (selDay !== today()) return;
     const it = dayItems(selDay).find(i => i.id === v); if (!it || it.kind === 'check') return;
@@ -1058,7 +1060,7 @@ const ACT = {
     editVideos.push(u); $('#fVid').value = ''; $('#fVids').innerHTML = vidsHTML();
   },
   vidDel: v => { editVideos.splice(+v, 1); $('#fVids').innerHTML = vidsHTML(); },
-  testSound: () => { clack(2); setTimeout(() => clack(3), 1300); setTimeout(gong, 2600); },
+  testSound: () => whenAudio(() => { if (!S.settings.sound) { toast('Zvuky jsou vypnuté'); return; } clack(2); setTimeout(() => clack(3), 1300); setTimeout(gong, 2600); }),
   parkEx: v => { const tr = tplById(TRIAL), e = tr && tr.items.find(x => x.id === v); if (!e) return; if (!commit(() => { e.parked = !e.parked || undefined; })) return; render(); sheetEx(TRIAL, v); toast(e.parked ? 'Uspáno' : 'Znovu se nabízí'); },
   promoteEx: v => {
     const others = S.templates.filter(t => !isTrial(t));
@@ -1184,9 +1186,19 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 
 /* zvuk */
 let actx = null;
+let audioUnlocked = false;
+// iPhone: zvuk se odemkne jen klepnutím; tichý režim (přepínač) WebAudio ztiší, pokud není zapnuto „i v tichém režimu“
 function unlockAudio() {
-  try { if (!actx) { const C = window.AudioContext || window.webkitAudioContext; if (C) actx = new C(); } if (actx && actx.state === 'suspended') actx.resume(); } catch (e) {}
+  try {
+    if ('audioSession' in navigator) navigator.audioSession.type = S.settings.soundSilent ? 'playback' : 'auto';
+    if (!actx) { const C = window.AudioContext || window.webkitAudioContext; if (C) actx = new C(); }
+    if (!actx) return;
+    if (actx.state !== 'running') actx.resume();
+    if (!audioUnlocked) { const b = actx.createBuffer(1, 1, 22050), src = actx.createBufferSource(); src.buffer = b; src.connect(actx.destination); src.start(0); audioUnlocked = true; }
+  } catch (e) {}
 }
+// přehraj až po odemčení (první klepnutí na iPhonu)
+function whenAudio(fn) { unlockAudio(); if (actx && actx.state !== 'running') actx.resume().then(fn, fn); else fn(); }
 function beep(freq = 880, dur = 0.12, vol = 0.35) {
   if (!S.settings.sound || !actx) return;
   try { const o = actx.createOscillator(), g = actx.createGain(); o.frequency.value = freq; o.type = 'sine';
