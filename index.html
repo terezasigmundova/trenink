@@ -144,6 +144,20 @@ textarea.inp{padding:14px 16px;min-height:88px;resize:none}
 .chip button{width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;color:var(--tx3)}
 .chip button svg.i{width:16px;height:16px}
 /* progres */
+/* progres */
+.pg-big{font-size:44px;font-weight:700;letter-spacing:-.02em;line-height:1}.pg-big span{font-size:24px;color:var(--tx2);font-weight:600}
+.pg-strip{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;align-items:end;height:164px}
+.pg-col{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:6px}
+.pg-ic{display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--tx2);min-height:18px}.pg-ic svg.i{width:18px;height:18px;stroke-width:1.8}
+.pg-more{font-size:11px;color:var(--tx2)}
+.pg-bar{width:26px;border-radius:7px;overflow:hidden;display:flex;flex-direction:column}.pg-bar i{background:var(--rest);opacity:.5}.pg-bar b{background:var(--acc)}
+.pg-dot{width:8px;height:8px;border-radius:50%;margin:4px 0;box-shadow:inset 0 0 0 1.5px var(--tx3);opacity:.5}
+.pg-dot.done{background:var(--acc);box-shadow:none;opacity:1}.pg-dot.missed{background:var(--bad);box-shadow:none;opacity:1}.pg-dot.partial{box-shadow:inset 0 0 0 1.5px var(--acc);opacity:1}.pg-dot.plan{background:var(--tx3);box-shadow:none}.pg-dot.off{opacity:1}
+.pg-d{font-size:13px;color:var(--tx2);font-weight:500}
+.pg-leg{display:flex;gap:14px;font-size:13px;color:var(--tx2);margin-top:12px}.pg-leg i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
+.pg-mini{display:flex;gap:4px;align-items:flex-end;height:30px}.pg-mini b{width:8px;border-radius:2px;background:var(--acc);opacity:.35}.pg-mini b.cur{opacity:1}
+.pg-rec{display:flex;gap:12px;align-items:center;padding:10px 0}.pg-rec+.pg-rec{border-top:.5px solid var(--sep)}
+.coach-img{width:100%;border-radius:14px;display:block;margin-top:8px}
 .stats{display:grid;grid-template-columns:repeat(3,1fr)}
 .stats>div{padding:16px 8px;text-align:center}
 .stats>div+div{border-left:.5px solid var(--sep)}
@@ -211,6 +225,7 @@ const P_ = {
   skip: '<path d="M6 5l9 7-9 7zM18 5v14"/>',
   up: '<path d="M6 15l6-6 6 6"/>', down: '<path d="M6 9l6 6 6-6"/>',
   swap: '<path d="M7 4L3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/>',
+  share: '<path d="M12 15V3M8 7l4-4 4 4M5 11v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8"/>',
   moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
 };
 const I = (n, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${P_[n]}</svg>`;
@@ -671,19 +686,91 @@ function workoutCard(w) {
 }
 
 /* ---------- Progres ---------- */
+// ikony aktivit: rozpoznají se z názvu (nic se neukládá); jen <path d>, aby šly kreslit i do obrázku (Path2D)
+const circ = (x, y, r) => `M${x - r} ${y}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0`;
+const ACT_IC = {
+  run: circ(14, 4, 2) + 'M8 21l3-6 3 2v4M6 12l3-3 4 1 2 3 3 1M11 15l1-5',
+  walk: circ(13, 4, 2) + 'M9 21l2-6 3 2v4M8 13l2-5h3l2 4M12 8l-1 7',
+  bike: circ(6, 17, 3.5) + circ(18, 17, 3.5) + 'M6 17l4-7h5l3 7M10 10l3 7M13 6h3',
+  swim: circ(16, 6, 2) + 'M3 18c2 0 2-1 4.5-1S10 18 12 18s2-1 4.5-1 2.5 1 4.5 1M6 14l5-4 3 3',
+  yoga: circ(12, 4.5, 2) + 'M4 12l4-2h8l4 2M12 10v5M7 20l5-5 5 5',
+  fight: 'M7 11V7a4 4 0 0 1 4-4h3a4 4 0 0 1 4 4v5a5 5 0 0 1-5 5h-2a4 4 0 0 1-4-4zM7 17v4h8v-4M11 8h4',
+  racket: circ(9, 9, 5.5) + 'M13 13l7 7',
+  gym: 'M6 8v8M3 10v4M18 8v8M21 10v4M6 12h12',
+  ski: circ(15, 4, 2) + 'M4 18l16 3M8 17l3-6 4 2-2 5M11 11l3-3',
+  other: 'M3 12h4l2-5 4 10 2-5h6',
+};
+const ACT_KW = [['run', ['beh', 'run', 'jogg', 'sprint']], ['walk', ['chuz', 'prochaz', 'walk', 'turist', 'hory', 'nordic']], ['bike', ['kolo', 'cykl', 'bike', 'spinning']],
+  ['swim', ['plav', 'swim', 'bazen']], ['yoga', ['joga', 'yoga', 'strec', 'protaz', 'pilates', 'mobilit']], ['fight', ['mma', 'box', 'kick', 'judo', 'bjj', 'thai', 'zapas', 'grappl', 'sparing', 'wrestl']],
+  ['racket', ['tenis', 'squash', 'badminton', 'padel', 'ping']], ['gym', ['posil', 'gym', 'crossfit', 'fitness', 'kruhov']], ['ski', ['lyz', 'ski', 'snowboard', 'bezk']]];
+const fold = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+const actIcon = name => { const n = fold(name); const hit = ACT_KW.find(([, kws]) => kws.some(k => n.includes(k))); return hit ? hit[0] : 'other'; };
+const AI = (name, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ACT_IC[actIcon(name)]}"/></svg>`;
+const fmtMin = ms => { const m = Math.round(ms / 60000); return m >= 60 ? Math.floor(m / 60) + ' h' + (m % 60 ? ' ' + (m % 60) + ' min' : '') : m + ' min'; };
+const pace = it => isNum(it.mins) && isNum(it.km) && it.km > 0 ? (s => Math.floor(s / 60) + ':' + pad(s % 60) + '/km')(Math.round(it.mins * 60 / it.km)) : '';
+// den v číslech: tréninky (čas cvičení × pauzy) a splněné aktivity
+function dayData(k) {
+  const r = S.days[k] || {}, done = r.done || {};
+  const ws = S.workouts.filter(w => w.date === k);
+  let work = 0, rest = 0; for (const w of ws) { const tot = wDur(w), wk = Math.min(tot, workMs(w)); work += wk; rest += tot - wk; }
+  const acts = k <= today() ? dayItems(k).filter(i => i.kind === 'check' && done[i.id]) : [];
+  return { k, st: dayStatus(k), ws, work, rest, acts, plan: k >= (S.settings.since || '') && dayItems(k).some(i => !i.optional) };
+}
+function weekData(mon) {
+  const days = []; for (let d = 0; d < 7; d++) days.push(dayData(dkey(addDays(mon, d))));
+  const planned = days.filter(x => x.plan || x.st === 'done').length, doneN = days.filter(x => x.st === 'done').length;
+  const work = days.reduce((a, x) => a + x.work, 0), rest = days.reduce((a, x) => a + x.rest, 0);
+  const acts = Object.create(null); for (const x of days) for (const it of x.acts) { const key = it.name.trim(); const o = acts[key] || (acts[key] = { name: key, n: 0, km: 0, mins: 0 }); o.n++; if (isNum(it.km)) o.km += it.km; if (isNum(it.mins)) o.mins += it.mins; }
+  return { days, planned, doneN, work, rest, acts: Object.values(acts) };
+}
+const actsSum = acts => acts.map(a => a.name + (a.km ? ' ' + fmtNum(a.km, 1) + ' km' : a.n > 1 ? ' ' + a.n + '×' : '')).join(' · ');
+// osobní rekordy: nejvyšší zátěž (při stejné víc opakování), u časových cviků nejdelší série; první záznam cviku se nepočítá
+function records(days = 30) {
+  const best = Object.create(null), out = Object.create(null); const from = dkey(addDays(new Date(), -days));
+  for (const w of S.workouts.slice().sort((a, b) => a.start - b.start)) for (const e of w.ex) {
+    let top = 0, topS = null;
+    for (const s of e.sets) { const sc = e.kind === 'time' ? (s.secs || 0) : (s.load || 0) * 1000 + (s.reps || 0); if (sc > top) { top = sc; topS = s; } }
+    if (!topS) continue;
+    const b = best[e.id]; // porovnává se jen s předchozími tréninky
+    if (b != null && top > b && w.date >= from) out[e.id] = { name: e.name, kind: e.kind, s: topS, date: w.date };
+    if (b == null || top > b) best[e.id] = top;
+  }
+  return Object.values(out).sort((a, b) => a.date < b.date ? 1 : -1).slice(0, 3);
+}
+function milestone() {
+  const ws = S.workouts.slice().sort((a, b) => a.start - b.start), n = ws.length; if (!n) return '';
+  const marks = [10, 25, 50, 75, 100, 150, 200, 300, 400, 500]; const m = marks.filter(x => x <= n).pop();
+  if (!m) return pl(n, 'trénink', 'tréninky', 'tréninků') + ' celkem';
+  return m + '. trénink · ' + fmtDate(ws[m - 1].date);
+}
+let progWk = 0, coachP = null;
 function viewProg() {
   let h = '<div class="top"><h1 class="large">Progres</h1></div>';
-  const mon = monday(new Date());
-  const weeks = [];
-  for (let i = 7; i >= 0; i--) {
-    const m = addDays(mon, -7 * i); let n = 0;
-    for (let d = 0; d < 7; d++) if (dayStatus(dkey(addDays(m, d))) === 'done') n++;
-    weeks.push({ m, n, cur: i === 0 });
-  }
-  const max = Math.max(4, ...weeks.map(w => w.n));
-  const totalMs = S.workouts.reduce((a, w) => a + wDur(w), 0);
-  h += `<div class="surf"><div class="stats"><div><div class="v num">${weeks[7].n}</div><div class="foot">tento týden</div></div><div><div class="v num">${S.workouts.length}</div><div class="foot">tréninků</div></div><div><div class="v num">${fmtNum(totalMs / 3600000, 1)}</div><div class="foot">hodin</div></div></div></div>`;
-  h += `<div class="surf pad"><div class="between"><span class="head">Splněné dny</span><span class="foot">${weeksInRow()} týd. v řadě</span></div><div class="bars">${weeks.map(w => `<div class="${w.cur ? 'cur' : ''}"><span>${w.n || ''}</span><b style="height:${w.n / max * 100}%"></b><span>${w.m.getDate()}.${w.m.getMonth() + 1}.</span></div>`).join('')}</div></div>`;
+  const mon = addDays(monday(new Date()), 7 * progWk), W = weekData(mon), t = today();
+  h += `<div class="weekhead"><button class="ib" data-a="pwk" data-v="-1" aria-label="Předchozí týden">${I('l')}</button><span class="foot num">${progWk === 0 ? 'Tento týden · ' : ''}${fmtDate(dkey(mon))} – ${fmtDate(dkey(addDays(mon, 6)))}</span><button class="ib" data-a="pwk" data-v="1" aria-label="Další týden" ${progWk >= 0 ? 'disabled style="opacity:.3"' : ''}>${I('r')}</button></div>`;
+  // hlavní karta týdne
+  const full = W.planned && W.doneN >= W.planned, frac = W.planned ? Math.min(1, W.doneN / W.planned) : 0, C = 2 * Math.PI * 34;
+  const sub = [W.work ? fmtMin(W.work) + ' cvičení' : '', W.rest ? fmtMin(W.rest) + ' pauzy' : '', actsSum(W.acts)].filter(Boolean).join(' · ');
+  h += `<div class="surf pad"><div class="between"><div><div class="pg-big num">${W.doneN}<span> z ${W.planned}</span></div><div class="foot">dní splněno</div></div>
+    <svg width="84" height="84" viewBox="0 0 84 84" aria-hidden="true"><circle cx="42" cy="42" r="34" stroke="var(--s2)" stroke-width="10" fill="none"/>${frac ? `<circle cx="42" cy="42" r="34" stroke="var(--acc)" stroke-width="10" fill="none" stroke-linecap="round" stroke-dasharray="${(frac * C).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 42 42)"/>` : ''}${full ? `<path d="M31 43l7 7 15-15" stroke="var(--acc)" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>` : ''}</svg></div>
+    <div class="foot" style="margin-top:12px">${full ? '<span class="acc">Týden splněn</span>' + (sub ? ' · ' : '') : ''}${esc(sub) || (full ? '' : 'Zatím bez tréninku')}</div></div>`;
+  // pás Po–Ne: cvičení × pauzy, nad sloupkem aktivity
+  const mx = Math.max(30 * 60000, ...W.days.map(x => x.work + x.rest));
+  h += `<div class="surf pad"><div class="pg-strip">${W.days.map((x, i) => {
+    const ic = x.acts.slice(0, 2).map(a => AI(a.name)).join('') + (x.acts.length > 2 ? `<span class="pg-more">+${x.acts.length - 2}</span>` : '');
+    const tot = x.work + x.rest;
+    const bar = tot ? `<span class="pg-bar" style="height:${Math.max(8, tot / mx * 110).toFixed(0)}px"><i style="flex:${x.rest}"></i><b style="flex:${x.work}"></b></span>` : `<span class="pg-dot ${x.st === 'done' ? 'done' : x.st === 'missed' ? 'missed' : x.st === 'off' ? 'off' : x.st === 'partial' ? 'partial' : x.k > t && x.plan ? 'plan' : ''}"></span>`;
+    return `<button class="pg-col" data-a="pDay" data-v="${x.k}"><span class="pg-ic">${ic}</span>${bar}<span class="pg-d ${x.k === t ? 'acc' : ''}">${DNY[i]}</span></button>`;
+  }).join('')}</div><div class="pg-leg"><span><i style="background:var(--acc)"></i>cvičení</span><span><i style="background:var(--rest);opacity:.6"></i>pauzy</span><span style="margin-left:auto">klepni na den</span></div>
+    <button class="btn b2" data-a="coach" style="margin-top:14px">${I('share')} Souhrn pro trenérku</button></div>`;
+  // série týdnů + milník
+  const weeks = []; const mon0 = monday(new Date());
+  for (let i = 7; i >= 0; i--) { const m = addDays(mon0, -7 * i); let n = 0; for (let d = 0; d < 7; d++) if (dayStatus(dkey(addDays(m, d))) === 'done') n++; weeks.push({ n, cur: i === 0 }); }
+  const wmax = Math.max(4, ...weeks.map(w => w.n)), wr = weeksInRow(), ms = milestone();
+  h += `<div class="surf pad between"><div><div style="font-size:22px;font-weight:600">${wr ? pl(wr, 'týden', 'týdny', 'týdnů') + ' v řadě' : 'Začni sérii'}</div><div class="foot">${ms || 'Týden se počítá, když v něm splníš aspoň jeden den.'}</div></div>
+    <div class="pg-mini" aria-hidden="true">${weeks.map(w => `<b class="${w.cur ? 'cur' : ''}" style="height:${Math.max(3, w.n / wmax * 28).toFixed(0)}px"></b>`).join('')}</div></div>`;
+  const recs = records();
+  if (recs.length) h += `<div class="surf pad"><div class="cap" style="margin-bottom:4px">Nové rekordy · 30 dní</div>${recs.map(r => `<div class="pg-rec"><span class="grow">${esc(r.name)}</span><span class="num">${setTxt(r.kind, r.s)}</span><span class="foot num" style="width:56px;text-align:right">${fmtDate(r.date)}</span></div>`).join('')}</div>`;
 
   // cviky
   h += '<h2 class="cap">Cviky</h2>';
@@ -723,7 +810,239 @@ function viewProg() {
   }
   if (!any) h += '<div class="empty">Hmotnost a obvody zapisuj tady.</div>';
   h += `<button class="btn b2" data-a="addMeasure" style="margin-top:8px">${I('plus')} Zapsat měření</button>`;
+  h += `<button class="btn b2" data-a="health" style="margin-top:8px">${I('share')} Souhrn zdraví · InBody a měření</button>`;
   return h;
+}
+/* ---------- Progres: detail dne ---------- */
+function sheetProgDay(k) {
+  const x = dayData(k), r = S.days[k] || {};
+  let h = sheetHead(fmtDayShort(k), ['closeSheet', 'Zavřít']) + `<div class="foot" style="margin:0 4px 12px">${(t => t.charAt(0).toUpperCase() + t.slice(1))(statusText[x.st] || '')}${reasonTxt(r) ? ' · ' + esc(reasonTxt(r)) : ''}${x.work ? ' · ' + fmtMin(x.work) + ' cvičení · ' + fmtMin(x.rest) + ' pauzy' : ''}</div>`;
+  if (x.acts.length) h += `<div class="surf list">${x.acts.map(a => `<div class="row">${AI(a.name, 'acc')}<span class="grow"><span class="head" style="display:block">${esc(a.name)}</span>${actTxt(a) || pace(a) ? `<span class="foot">${[actTxt(a), pace(a)].filter(Boolean).join(' · ')}</span>` : ''}</span></div>`).join('')}</div>`;
+  for (const w of x.ws) h += workoutCard(w);
+  if (!x.acts.length && !x.ws.length) h += `<div class="empty">${k > today() ? 'Tento den teprve přijde.' : 'V tento den žádný záznam.'}</div>`;
+  sheet(h);
+}
+
+/* ---------- Souhrn pro trenérku (obrázek / text přes Sdílet) ---------- */
+// série stručně: 3 × 10 × 12 kg · 10/10/8 × 8 kg · 4 × 2 min
+function setsShort(e) {
+  const ss = e.sets; if (!ss.length) return e.skipped ? 'přeskočeno' : 'neodcvičeno';
+  if (e.kind === 'time') { const v = ss.map(s => Math.round(s.secs || 0)); return v.every(x => x === v[0]) ? ss.length + ' × ' + fmtSec(v[0]) : v.map(fmtSec).join(', '); }
+  const reps = ss.map(s => s.reps ?? 0), loads = ss.map(s => s.load || 0), sameL = loads.every(x => x === loads[0]);
+  if (!sameL) return ss.map(s => setTxt('reps', s)).join(', ');
+  const kg = loads[0] ? ' × ' + fmtNum(loads[0]) + ' kg' : '';
+  return (reps.every(x => x === reps[0]) ? ss.length + ' × ' + reps[0] : reps.join('/')) + kg;
+}
+function coachRange() {
+  const t = today(), p = coachP || (coachP = { mode: wIdx(new Date()) === 0 ? 'last' : 'this' });
+  const mon = monday(new Date());
+  if (p.mode === 'this') return [dkey(mon), dkey(addDays(mon, 6))];
+  if (p.mode === 'last') return [dkey(addDays(mon, -7)), dkey(addDays(mon, -1))];
+  let a = okDate(p.from) ? p.from : dkey(addDays(mon, -7)), b = okDate(p.to) ? p.to : t; if (a > b) [a, b] = [b, a];
+  if ((parseKey(b) - parseKey(a)) / 864e5 > 30) b = dkey(addDays(parseKey(a), 30));
+  p.from = a; p.to = b; return [a, b];
+}
+const fmtRange = (a, b) => { const A = parseKey(a), B = parseKey(b); if (A.getFullYear() !== B.getFullYear()) return fmtDate(a) + ' ' + A.getFullYear() + ' – ' + fmtDate(b) + ' ' + B.getFullYear(); return (A.getMonth() === B.getMonth() && A.getFullYear() === B.getFullYear() ? A.getDate() + '.' : fmtDate(a)) + '–' + fmtDate(b) + ' ' + B.getFullYear(); };
+// obsah souhrnu (bez InBody a měření — ty budou mít vlastní export)
+function coachModel(a, b) {
+  const t = today(), days = [];
+  let planned = 0, doneN = 0, work = 0, rest = 0; const acts = Object.create(null);
+  for (let k = a, g = 0; k <= b && g < 40; k = dkey(addDays(parseKey(k), 1)), g++) {
+    const x = dayData(k), r = S.days[k] || {}; if (k > t && !x.ws.length) continue;
+    if (x.plan || x.st === 'done') planned++; if (x.st === 'done') doneN++; work += x.work; rest += x.rest;
+    const rows = [];
+    for (const w of x.ws) {
+      const tot = wDur(w), wk = Math.min(tot, workMs(w));
+      rows.push({ t: 'sub', l: w.tplName || 'Trénink', r: [fmtMin(tot), w.feel ? FEELS[w.feel] : ''].filter(Boolean).join(' · ') });
+      rows.push({ t: 'bar', work: wk, rest: tot - wk });
+      for (const e of w.ex) if (e.sets.length || !e.trial) rows.push({ t: 'ex', l: e.name, r: setsShort(e), dim: !e.sets.length });
+      if (w.note) rows.push({ t: 'note', l: '„' + w.note + '“' });
+    }
+    for (const it of x.acts) {
+      rows.push({ t: 'act', icon: actIcon(it.name), l: [it.name, isNum(it.mins) ? it.mins + ' min' : '', isNum(it.km) ? fmtNum(it.km) + ' km' : '', pace(it)].filter(Boolean).join(' · ') });
+      if (it.note) rows.push({ t: 'note', l: it.note });
+      const key = it.name.trim(), o = acts[key] || (acts[key] = { name: key, n: 0, km: 0 }); o.n++; if (isNum(it.km)) o.km += it.km;
+    }
+    const sl = k <= t ? suppsFor(k) : [], sr = r.supps || {};
+    if (sl.length) { const tk = sl.filter(s => sr[s.id] && sr[s.id].taken); rows.push({ t: 'supp', l: 'Suplementy ' + tk.length + '/' + sl.length + (tk.length ? ': ' + tk.map(s => (sr[s.id].name || s.name) + ' ' + doseTxt(sr[s.id].dose, sr[s.id].unit)).join(', ') : '') }); }
+    let head = fmtDayShort(k), state = '';
+    if ((x.st === 'missed' || x.st === 'off') && !x.ws.length && !x.acts.length) state = statusText[x.st] + (reasonTxt(r) ? ' · ' + reasonTxt(r) : '');
+    else if (x.st === 'partial') state = 'rozpracováno';
+    else if (!x.ws.length && !x.acts.length) state = x.st === 'none' ? '' : 'volno';
+    days.push({ k, head, state, bad: x.st === 'missed' && !x.ws.length && !x.acts.length, rows });
+  }
+  const al = Object.values(acts);
+  return { title: S.settings.name ? S.settings.name + ' · trénink' : 'Trénink', period: fmtRange(a, b), line: [doneN + '/' + planned + ' dní splněno', work ? 'cvičení ' + fmtMin(work) + ', pauzy ' + fmtMin(rest) : '', al.length ? 'aktivity: ' + actsSum(al) : ''].filter(Boolean).join(' · '), sum: [[doneN + '/' + planned, 'dní splněno'], [fmtMin(work), 'cvičení'], [fmtMin(rest), 'pauzy']], acts: al.length ? 'Aktivity: ' + actsSum(al) : '', days };
+}
+function coachText(m) {
+  const L = [m.title + ' · ' + m.period, m.line, ''];
+  for (const d of m.days) {
+    L.push(d.head + (d.state ? ' · ' + d.state : ''));
+    for (const r of d.rows) {
+      if (r.t === 'sub') L.push('  ' + r.l + (r.r ? ' (' + r.r + ')' : ''));
+      else if (r.t === 'ex') L.push('   – ' + r.l + ': ' + r.r);
+      else if (r.t === 'act') L.push('  ' + r.l);
+      else if (r.t === 'note') L.push('     ' + r.l);
+      else if (r.t === 'supp') L.push('  ' + r.l);
+    }
+    L.push('');
+  }
+  return L.join('\n').trim() + '\n';
+}
+// kreslení na canvas 1080 px; dlouhý souhrn se rozdělí na víc obrázků
+const CW = 1080, CX = 64, FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif';
+const CC = { bg: '#0b0c0f', s1: '#16181d', s2: '#202329', tx: '#f5f5f7', tx2: '#9a9ca4', tx3: '#63666e', acc: '#c6f432', rest: '#5aa9ff', bad: '#ff5c5c', sep: 'rgba(255,255,255,.1)' };
+function fit(ctx, s, w) { if (ctx.measureText(s).width <= w) return s; while (s.length > 1 && ctx.measureText(s + '…').width > w) s = s.slice(0, -1); return s + '…'; }
+function wrap(ctx, s, w) { const out = []; let line = ''; for (const word of String(s).split(/\s+/)) { const tst = line ? line + ' ' + word : word; if (ctx.measureText(tst).width > w && line) { out.push(line); line = word; } else line = tst; } if (line) out.push(line); return out.slice(0, 6); }
+// blok = { h, draw(ctx, y) }
+function coachBlocks(ctx, m) {
+  const B = [], W = CW - 2 * CX;
+  B.push({ h: 150, draw: (c, y) => { c.fillStyle = CC.tx; c.font = '700 60px ' + FONT; c.fillText(fit(c, m.title, W), CX, y + 72); c.fillStyle = CC.tx2; c.font = '400 36px ' + FONT; c.fillText(m.period, CX, y + 124); } });
+  B.push({ h: 210, draw: (c, y) => { const bw = (W - 2 * 20) / 3; m.sum.forEach(([v, l], i) => { const x = CX + i * (bw + 20); c.fillStyle = CC.s1; rr(c, x, y + 10, bw, 170, 28); c.fill(); c.fillStyle = CC.tx; c.font = '700 46px ' + FONT; c.fillText(fit(c, v, bw - 48), x + 24, y + 80); c.fillStyle = CC.tx2; c.font = '400 28px ' + FONT; wrap(c, l, bw - 48).slice(0, 2).forEach((ln, j) => c.fillText(ln, x + 24, y + 124 + j * 34)); }); } });
+  if (m.acts) { ctx.font = '400 34px ' + FONT; const lines = wrap(ctx, m.acts, W); B.push({ h: lines.length * 44 + 24, draw: (c, y) => { c.font = '400 34px ' + FONT; c.fillStyle = CC.tx2; lines.forEach((ln, j) => c.fillText(ln, CX, y + 36 + j * 44)); } }); }
+  for (const d of m.days) {
+    // každý řádek je vlastní blok, aby šel dlouhý den rozdělit; hlavička dne drží s dalším řádkem
+    let first = true; const add = (hh, fn) => { B.push({ h: hh, draw: fn, keep: first }); first = false; };
+    add(84, (c, y) => { c.strokeStyle = CC.sep; c.lineWidth = 2; c.beginPath(); c.moveTo(CX, y + 2); c.lineTo(CW - CX, y + 2); c.stroke(); c.font = '600 40px ' + FONT; c.fillStyle = d.bad ? CC.tx2 : CC.tx; let x = CX; if (d.bad) { c.fillStyle = CC.bad; c.beginPath(); c.arc(CX + 9, y + 56, 9, 0, 7); c.fill(); x += 30; c.fillStyle = CC.tx2; } c.fillText(d.head, x, y + 68); if (d.state) { c.font = '400 34px ' + FONT; c.fillStyle = CC.tx2; const s = fit(c, d.state, W - 300); c.textAlign = 'right'; c.fillText(s, CW - CX, y + 68); c.textAlign = 'left'; } });
+    for (const r of d.rows) {
+      if (r.t === 'sub') add(58, (c, y) => { c.font = '600 34px ' + FONT; c.fillStyle = CC.tx; c.fillText(fit(c, r.l, W - 330), CX, y + 44); c.font = '400 32px ' + FONT; c.fillStyle = CC.tx2; c.textAlign = 'right'; c.fillText(r.r, CW - CX, y + 44); c.textAlign = 'left'; });
+      else if (r.t === 'bar') add(30, (c, y) => { const tot = r.work + r.rest || 1, ww = (W - 24) * r.work / tot; c.fillStyle = CC.acc; rr(c, CX + 24, y + 10, Math.max(ww, 6), 10, 5); c.fill(); if (r.rest) { c.globalAlpha = .55; c.fillStyle = CC.rest; rr(c, CX + 24 + ww + 4, y + 10, Math.max(W - 24 - ww - 4, 0), 10, 5); c.fill(); c.globalAlpha = 1; } });
+      else if (r.t === 'ex') add(50, (c, y) => { c.font = '400 32px ' + FONT; c.fillStyle = r.dim ? CC.tx3 : CC.tx2; c.textAlign = 'right'; c.fillText(r.r, CW - CX, y + 38); const rw = c.measureText(r.r).width; c.textAlign = 'left'; c.fillStyle = r.dim ? CC.tx3 : CC.tx; c.fillText(fit(c, r.l, W - 24 - rw - 24), CX + 24, y + 38); });
+      else if (r.t === 'act') add(58, (c, y) => { c.save(); c.translate(CX + 22, y + 12); c.scale(1.5, 1.5); c.strokeStyle = CC.acc; c.lineWidth = 1.8; c.lineCap = 'round'; c.lineJoin = 'round'; c.stroke(new Path2D(ACT_IC[r.icon])); c.restore(); c.font = '400 34px ' + FONT; c.fillStyle = CC.tx; c.fillText(fit(c, r.l, W - 80), CX + 74, y + 42); });
+      else { ctx.font = (r.t === 'note' ? 'italic ' : '') + '400 30px ' + FONT; const lines = wrap(ctx, r.l, W - 24); add(lines.length * 40 + 10, (c, y) => { c.font = (r.t === 'note' ? 'italic ' : '') + '400 30px ' + FONT; c.fillStyle = CC.tx2; lines.forEach((ln, j) => c.fillText(ln, CX + 24, y + 36 + j * 40)); }); }
+    }
+    B.push({ h: 18, draw: () => {} });
+  }
+  return B;
+}
+function rr(c, x, y, w, h, r) { c.beginPath(); if (c.roundRect) c.roundRect(x, y, w, h, r); else c.rect(x, y, w, h); }
+async function coachImages(m, build = coachBlocks) {
+  const meas = document.createElement('canvas').getContext('2d'); const B = build(meas, m);
+  const nh = m.kind === 'health' ? 1 : m.acts ? 3 : 2, head = B.slice(0, nh), body = B.slice(nh), MAXH = 5200, FOOT = 90;
+  const pages = []; let cur = head.slice(), hh = head.reduce((a, b) => a + b.h, 0);
+  for (let bi = 0; bi < body.length; bi++) { const b = body[bi]; if (hh + b.h + (b.keep && body[bi + 1] ? body[bi + 1].h : 0) + FOOT + 64 > MAXH && cur.length > 1) { pages.push(cur); cur = [head[0]]; hh = head[0].h; } cur.push(b); hh += b.h; }
+  pages.push(cur);
+  const files = [];
+  for (let i = 0; i < pages.length; i++) {
+    const p = pages[i], H = p.reduce((a, b) => a + b.h, 0) + FOOT + 40;
+    const cv = document.createElement('canvas'); cv.width = CW; cv.height = H; const c = cv.getContext('2d');
+    c.fillStyle = CC.bg; c.fillRect(0, 0, CW, H); let y = 24; for (const b of p) { b.draw(c, y); y += b.h; }
+    c.font = '400 26px ' + FONT; c.fillStyle = CC.tx3; c.textAlign = 'center';
+    if (m.kind === 'health') { c.fillText('zelená = posun správným směrem · červená = opačným' + (pages.length > 1 ? ' · ' + (i + 1) + '/' + pages.length : ''), CW / 2, y + 56); c.textAlign = 'left'; }
+    else { c.fillText('cvičení ■ · pauzy ■' + (pages.length > 1 ? ' · ' + (i + 1) + '/' + pages.length : ''), CW / 2, y + 56); c.textAlign = 'left';
+    const tw = c.measureText('cvičení ■ · pauzy ■' + (pages.length > 1 ? ' · ' + (i + 1) + '/' + pages.length : '')).width, x0 = CW / 2 - tw / 2;
+    c.fillStyle = CC.acc; c.fillText('■', x0 + c.measureText('cvičení ').width, y + 56); c.fillStyle = CC.rest; c.fillText('■', x0 + c.measureText('cvičení ■ · pauzy ').width, y + 56); }
+    const blob = await new Promise(res => cv.toBlob(res, 'image/png'));
+    if (!blob) return [];
+    files.push(new File([blob], (m.file || 'trenink') + '-' + m.period.replace(/[^0-9]+/g, '-').replace(/^-|-$/g, '') + (pages.length > 1 ? '-' + (i + 1) : '') + '.png', { type: 'image/png' }));
+  }
+  return files;
+}
+let coachFiles = [], coachTxt = '', coachUrls = [], coachGen = 0;
+function coachReset() { coachGen++; coachUrls.forEach(u => URL.revokeObjectURL(u)); coachUrls = []; coachFiles = []; }
+async function sheetCoach() {
+  curSum = 'coach';
+  const [a, b] = coachRange(), m = coachModel(a, b), p = coachP;
+  coachTxt = coachText(m);
+  const seg = [['this', 'Tento týden'], ['last', 'Minulý týden'], ['custom', 'Vlastní']].map(([k, l]) => `<button data-a="coachP" data-v="${k}" class="${p.mode === k ? 'on' : ''}">${l}</button>`).join('');
+  let h = sheetHead('Souhrn pro trenérku', ['closeSheet', 'Zavřít']) + `<div class="seg">${seg}</div>`;
+  if (p.mode === 'custom') h += `<div style="display:flex;gap:8px;margin-top:8px"><label class="fld" style="flex:1"><span>Od</span><input class="inp" type="date" id="cFrom" value="${a}"></label><label class="fld" style="flex:1"><span>Do</span><input class="inp" type="date" id="cTo" value="${b}"></label></div><div class="foot" style="margin:4px">Nejvýš 31 dní.</div>`;
+  h += `<label class="fld" style="margin-top:8px"><span>Jméno v hlavičce</span><input class="inp" id="cName" maxlength="30" placeholder="např. Tereza" value="${esc(S.settings.name || '')}"></label>`;
+  h += `<button class="btn b1" data-a="coachShare" style="margin-top:12px">${I('share')} Sdílet obrázek</button>
+    <button class="btn b2" data-a="coachShareText" style="margin-top:8px">Sdílet jako text</button>
+    <div class="foot" style="margin:10px 4px">Obsahuje tréninky, aktivity, poznámky, důvody nesplnění a suplementy. InBody a měření ne.</div>
+    <div class="cap" style="margin:16px 4px 0">Náhled</div><div id="cPrev" class="foot" style="margin:8px 4px">Připravuji náhled…</div>`;
+  sheet(h); coachReset(); const gen = coachGen;
+  const files = await coachImages(m); if (gen !== coachGen || !$('#cPrev')) return; // mezitím jiné období / zavřený panel
+  coachFiles = files; coachUrls = files.map(f => URL.createObjectURL(f));
+  $('#cPrev').innerHTML = coachUrls.map(u => `<img class="coach-img" src="${u}" alt="Náhled souhrnu">`).join('') || 'Náhled se nepodařilo vytvořit.';
+}
+async function coachShareFiles() {
+  if (!coachFiles.length) { toast('Náhled se ještě připravuje'); return; }
+  try {
+    if (navigator.canShare && navigator.canShare({ files: coachFiles })) { await navigator.share({ files: coachFiles }); return; }
+  } catch (e) { if (e && e.name === 'AbortError') return; }
+  // záloha: stáhnout (v PWA lze také podržet obrázek v náhledu → Uložit/Sdílet)
+  coachFiles.forEach((f, i) => { const a = document.createElement('a'); a.href = coachUrls[i]; a.download = f.name; document.body.appendChild(a); a.click(); a.remove(); });
+  toast('Obrázek se stahuje — nebo ho podrž v náhledu');
+}
+async function coachShareText() {
+  try { if (navigator.share) { await navigator.share({ text: coachTxt }); return; } } catch (e) { if (e && e.name === 'AbortError') return; }
+  try { await navigator.clipboard.writeText(coachTxt); toast('Text zkopírován'); } catch (e) { toast('Sdílení se nepodařilo'); }
+}
+/* ---------- Souhrn zdraví (InBody a měření) — odděleně od tréninku ---------- */
+let healthP = null, curSum = 'coach';
+function healthRange() {
+  const t = today(), p = healthP || (healthP = { mode: 'all' });
+  const ks = S.measures.map(x => x.date).filter(okDate).sort(), first = ks[0] || t;
+  if (p.mode === 'all') return [first < t ? first : t, t];
+  if (p.mode === '3m') { const n = new Date(), d = new Date(n.getFullYear(), n.getMonth() - 3, 1); d.setDate(Math.min(n.getDate(), new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate())); return [dkey(d), t]; }
+  let a = okDate(p.from) ? p.from : first, b = okDate(p.to) ? p.to : t; if (a > b) [a, b] = [b, a]; p.from = a; p.to = b; return [a, b];
+}
+const fmtDY = k => fmtDate(k) + ' ' + k.slice(0, 4);
+function healthModel(a, b) {
+  const inR = k => k >= a && k <= b;
+  const ss = inbodySessions().filter(s => inR(s.date)), ib = [];
+  for (const def of INBODY) {
+    const pts = ss.filter(s => s.v[def.key] != null).map(s => ({ d: s.date, v: s.v[def.key] })); if (!pts.length) continue;
+    const f = pts[0], l = pts[pts.length - 1], diff = pts.length > 1 ? l.v - f.v : null;
+    ib.push({ key: def.key, name: def.name, unit: def.unit, dec: def.dec, first: f.v, last: l.v, diff, good: diff == null || Math.abs(diff) < 1e-9 || def.good === 0 ? 0 : (diff > 0) === (def.good > 0) ? 1 : -1, pts: pts.map(p => p.v) });
+  }
+  const ms = [];
+  for (const m of S.metrics) {
+    const pts = S.measures.filter(x => x.metric === m.key && (!x.session || m.key === 'vaha') && inR(x.date)).sort((p, q) => p.date < q.date ? -1 : p.date > q.date ? 1 : 0);
+    if (!pts.length || (m.key === 'vaha' && ib.some(r => r.key === 'vaha') && pts.every(x => x.session))) continue; // hmotnost jen z InBody se neopakuje
+    const f = pts[0], l = pts[pts.length - 1];
+    ms.push({ name: m.name, unit: m.unit || '', dec: 1, first: f.value, last: l.value, diff: pts.length > 1 ? l.value - f.value : null, good: 0, pts: pts.map(p => p.value), sub: (pts.length > 1 ? fmtDate(f.date) + ' → ' : '') + fmtDate(l.date) + (pts.length > 2 ? ' · ' + pts.length + '×' : '') });
+  }
+  return { title: S.settings.name ? S.settings.name + ' · zdraví' : 'Zdraví', period: fmtRange(a, b), file: 'zdravi', kind: 'health',
+    ibHead: ss.length ? pl(ss.length, 'měření', 'měření', 'měření') + ' · ' + (ss.length > 1 ? fmtDY(ss[0].date) + ' → ' : '') + fmtDY(ss[ss.length - 1].date) : '', ib, ms };
+}
+const numU = (v, dec, unit) => fmtNum(v, dec) + (!unit || unit === 'úroveň' ? '' : unit === '°' || unit === '%' ? unit : ' ' + unit);
+const diffTxt = (d, dec) => d == null ? '–' : Math.abs(d) < 1e-9 ? '0' : (d > 0 ? '+' : '−') + fmtNum(Math.abs(d), dec);
+function healthText(m) {
+  const L = [m.title + ' · ' + m.period, ''];
+  if (m.ib.length) { L.push('InBody · ' + m.ibHead); for (const r of m.ib) L.push('  ' + r.name + ': ' + (r.diff != null ? numU(r.first, r.dec, r.unit) + ' → ' : '') + numU(r.last, r.dec, r.unit) + (r.diff != null ? ' (' + diffTxt(r.diff, r.dec) + ')' : '')); L.push(''); }
+  if (m.ms.length) { L.push('Měření'); for (const r of m.ms) L.push('  ' + r.name + ': ' + (r.diff != null ? numU(r.first, r.dec, r.unit) + ' → ' : '') + numU(r.last, r.dec, r.unit) + (r.diff != null ? ' (' + diffTxt(r.diff, r.dec) + ')' : '') + ' · ' + r.sub); }
+  if (!m.ib.length && !m.ms.length) L.push('V tomto období žádná měření.');
+  return L.join('\n').trim() + '\n';
+}
+function healthBlocks(ctx, m) {
+  const B = [], W = CW - 2 * CX, R1 = CX + 520, R2 = CX + 700, R3 = CX + 830, SPX = CX + 856, SPW = W - 856;
+  B.push({ h: 150, draw: (c, y) => { c.fillStyle = CC.tx; c.font = '700 60px ' + FONT; c.fillText(fit(c, m.title, W), CX, y + 72); c.fillStyle = CC.tx2; c.font = '400 36px ' + FONT; c.fillText(m.period, CX, y + 124); } });
+  const spark = (c, pts, y) => { if (pts.length < 2) return; const mn = Math.min(...pts), mx = Math.max(...pts), rg = mx - mn || 1; c.strokeStyle = CC.acc; c.lineWidth = 3; c.lineJoin = 'round'; c.beginPath(); pts.forEach((v, i) => { const x = SPX + i / (pts.length - 1) * SPW, yy = y + 36 - (v - mn) / rg * 30; i ? c.lineTo(x, yy) : c.moveTo(x, yy); }); c.stroke(); };
+  const section = (title, sub, rows) => {
+    B.push({ h: 130, keep: true, draw: (c, y) => { c.strokeStyle = CC.sep; c.lineWidth = 2; c.beginPath(); c.moveTo(CX, y + 12); c.lineTo(CW - CX, y + 12); c.stroke(); c.fillStyle = CC.tx; c.font = '600 42px ' + FONT; c.fillText(title, CX, y + 70); c.fillStyle = CC.tx2; c.font = '400 28px ' + FONT; c.fillText(fit(c, sub, W), CX, y + 112); } });
+    B.push({ h: 50, keep: true, draw: (c, y) => { c.fillStyle = CC.tx3; c.font = '500 26px ' + FONT; c.textAlign = 'right'; c.fillText('ZAČÁTEK', R1, y + 36); c.fillText('TEĎ', R2, y + 36); c.fillText('ZMĚNA', R3, y + 36); c.textAlign = 'left'; } });
+    for (const r of rows) B.push({ h: r.sub ? 96 : 66, draw: (c, y) => {
+      c.fillStyle = CC.tx; c.font = '400 32px ' + FONT; c.fillText(fit(c, r.name, 340), CX, y + 44);
+      if (r.sub) { c.fillStyle = CC.tx3; c.font = '400 24px ' + FONT; c.fillText(r.sub, CX, y + 80); }
+      c.font = '400 32px ' + FONT; c.textAlign = 'right'; c.fillStyle = CC.tx2; if (r.diff != null) c.fillText(numU(r.first, r.dec, r.unit), R1, y + 44);
+      c.fillStyle = CC.tx; c.font = '600 32px ' + FONT; c.fillText(numU(r.last, r.dec, r.unit), R2, y + 44);
+      c.font = '600 32px ' + FONT; c.fillStyle = r.good > 0 ? CC.acc : r.good < 0 ? CC.bad : CC.tx2; c.fillText(diffTxt(r.diff, r.dec), R3, y + 44); c.textAlign = 'left';
+      spark(c, r.pts, y + 6); } });
+  };
+  if (m.ib.length) section('InBody', m.ibHead, m.ib);
+  if (m.ms.length) section('Měření', 'hmotnost a obvody', m.ms);
+  if (!m.ib.length && !m.ms.length) B.push({ h: 80, draw: (c, y) => { c.fillStyle = CC.tx2; c.font = '400 34px ' + FONT; c.fillText('V tomto období žádná měření.', CX, y + 50); } });
+  return B;
+}
+async function sheetHealth() {
+  curSum = 'health';
+  const [a, b] = healthRange(), m = healthModel(a, b), p = healthP;
+  coachTxt = healthText(m);
+  const seg = [['all', 'Od začátku'], ['3m', '3 měsíce'], ['custom', 'Vlastní']].map(([k, l]) => `<button data-a="healthP" data-v="${k}" class="${p.mode === k ? 'on' : ''}">${l}</button>`).join('');
+  let h = sheetHead('Souhrn zdraví', ['closeSheet', 'Zavřít']) + `<div class="seg">${seg}</div>`;
+  if (p.mode === 'custom') h += `<div style="display:flex;gap:8px;margin-top:8px"><label class="fld" style="flex:1"><span>Od</span><input class="inp" type="date" id="cFrom" value="${a}"></label><label class="fld" style="flex:1"><span>Do</span><input class="inp" type="date" id="cTo" value="${b}"></label></div>`;
+  h += `<label class="fld" style="margin-top:8px"><span>Jméno v hlavičce</span><input class="inp" id="cName" maxlength="30" placeholder="např. Tereza" value="${esc(S.settings.name || '')}"></label>
+    <button class="btn b1" data-a="coachShare" style="margin-top:12px">${I('share')} Sdílet obrázek</button>
+    <button class="btn b2" data-a="coachShareText" style="margin-top:8px">Sdílet jako text</button>
+    <div class="foot" style="margin:10px 4px">InBody a měření (hmotnost, obvody) s vývojem za zvolené období. Tréninky ne — ty jsou v Souhrnu pro trenérku.</div>
+    <div class="cap" style="margin:16px 4px 0">Náhled</div><div id="cPrev" class="foot" style="margin:8px 4px">Připravuji náhled…</div>`;
+  sheet(h); coachReset(); const gen = coachGen;
+  const files = await coachImages(m, healthBlocks); if (gen !== coachGen || !$('#cPrev')) return;
+  coachFiles = files; coachUrls = files.map(f => URL.createObjectURL(f));
+  $('#cPrev').innerHTML = coachUrls.map(u => `<img class="coach-img" src="${u}" alt="Náhled souhrnu">`).join('') || 'Náhled se nepodařilo vytvořit.';
 }
 function inbodySessions() {
   const by = Object.create(null);
@@ -794,7 +1113,7 @@ function viewPlan() {
 
 /* ---------- spodní panel ---------- */
 function sheet(html) { $('#sheet').innerHTML = `<div class="sheet-bg" data-a="closeSheetBg"><div class="sheet" role="dialog">${html}</div></div>`; }
-function closeSheet() { $('#sheet').innerHTML = ''; }
+function closeSheet() { $('#sheet').innerHTML = ''; coachReset(); }
 const sheetHead = (title, left = ['closeSheet', 'Zavřít'], right = null) =>
   `<div class="sheet-h"><button class="b3" data-a="${left[0]}" ${left[2] ? `data-v="${left[2]}"` : ''}>${left[1]}</button><span class="head">${title}</span>${right ? `<button class="b3 acc" data-a="${right[0]}" ${right[2] ? `data-v="${right[2]}"` : ''}>${right[1]}</button>` : '<span class="b3"></span>'}</div>`;
 
@@ -897,11 +1216,21 @@ document.addEventListener('change', ev => {
   if (a === 'progEx') { progEx = el.value; render(); }
   if (a === 'setSound') { S.settings.sound = el.checked; save(); }
   if (a === 'setSilent') { S.settings.soundSilent = el.checked; save(); unlockAudio(); }
+  if (el.id === 'cName') { const n = el.value.trim().slice(0, 30); if (n) S.settings.name = n; else delete S.settings.name; save(); (curSum === 'health' ? sheetHealth : sheetCoach)(); }
+  if ((el.id === 'cFrom' || el.id === 'cTo') && okDate(el.value)) { const P = curSum === 'health' ? healthP : coachP; if (P) { P[el.id === 'cFrom' ? 'from' : 'to'] = el.value; (curSum === 'health' ? sheetHealth : sheetCoach)(); } }
 });
 const ACT = {
   tab: v => { tab = v; window.scrollTo(0, 0); render(); },
   wk: v => { selDay = dkey(addDays(parseKey(selDay), +v)); render(); },
   day: v => { selDay = v; render(); },
+  pwk: v => { progWk = Math.min(0, progWk + +v); render(); },
+  pDay: v => sheetProgDay(v),
+  coach: () => { coachP = null; sheetCoach(); },
+  coachP: v => { coachP = Object.assign(coachP || {}, { mode: v }); sheetCoach(); },
+  coachShare: () => coachShareFiles(),
+  health: () => { healthP = null; sheetHealth(); },
+  healthP: v => { healthP = Object.assign(healthP || {}, { mode: v }); sheetHealth(); },
+  coachShareText: () => coachShareText(),
   hideInstall: () => { S.settings.hideInstall = true; save(); renderBanner(); },
   suppTick: v => { const [k, id] = v.split(':'); const x = S.supps.find(y => y.id === id); if (!x || k > today()) return;
     commit(() => { const r = suppRec(k, x); r.taken = !r.taken; if (!r.taken && r.dose === x.dose && r.unit === x.unit) delete S.days[k].supps[x.id]; }); render(); },
