@@ -1,7 +1,7 @@
 // Offline cache aplikace. Při změně kódu zvyš VERZE.
 // prefix obsahuje cestu, aby se nepletly cache jiných stránek na stejné doméně
 const PREFIX = 'trenink:' + new URL(self.registration.scope).pathname + ':';
-const VERZE = PREFIX + 'v12';
+const VERZE = PREFIX + 'v13';
 const SOUBORY = ['./', './index.html', './manifest.webmanifest', './icon-180.png', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {

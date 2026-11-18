@@ -96,7 +96,8 @@ h2.cap{margin:32px 4px 8px}
 .run-top .clock{min-width:44px;text-align:right;font-size:15px;color:var(--tx2)}
 .bar{width:100%;max-width:200px;height:3px;border-radius:2px;background:var(--s2);overflow:hidden}
 .bar i{display:block;height:100%;background:var(--acc);transition:width .25s ease-out}
-.run-main{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;gap:6px;min-height:0;overflow:auto;padding:8px 0}
+.run-main{flex:1;display:flex;flex-direction:column;justify-content:flex-start;align-items:center;text-align:center;gap:6px;min-height:0;overflow:auto;padding:8px 0}
+.run-main>*{flex-shrink:0}.run-main>:first-child{margin-top:auto}.run-main>:last-child{margin-bottom:auto}
 .meta{font-size:17px;color:var(--tx2)}
 .hint{font-size:15px;color:var(--tx2);min-height:20px}
 .hint b{color:var(--acc);font-weight:500}
@@ -117,6 +118,17 @@ h2.cap{margin:32px 4px 8px}
 .run-bot{display:flex;flex-direction:column;gap:8px}
 .run-bot .next{text-align:center;font-size:15px;color:var(--tx2);min-height:20px}
 .feel{display:flex;gap:8px;width:100%;margin-top:16px}
+.moods{display:flex;gap:8px;width:100%;margin-top:16px}
+.moods button{flex:1;min-height:96px;border-radius:var(--r-md);background:var(--s2);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--tx2);font-weight:600;font-size:15px;transition:color .2s,box-shadow .2s}
+.moods svg.i{width:40px;height:40px;stroke-width:1.5}
+.moods button.on{color:var(--acc);box-shadow:inset 0 0 0 1.5px var(--acc)}
+.moods button.pop svg.i{animation:pop .26s ease-out}
+@keyframes pop{50%{transform:scale(1.15)}}
+svg.i.mi{width:16px;height:16px;stroke-width:1.8;vertical-align:-3px}
+.pills{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.pill{min-height:36px;padding:0 14px;border-radius:18px;background:var(--s2);color:var(--tx2);font-weight:600;font-size:15px}
+.pill.on{background:var(--acc);color:var(--onAcc)}
+.pill.ap{display:inline-flex;align-items:center;gap:6px}.pill.ap svg.i{width:16px;height:16px;stroke-width:1.8}
 .feel button{flex:1;min-height:56px;border-radius:var(--r-md);background:var(--s2);font-weight:600;color:var(--tx2)}
 .feel button.on{background:var(--acc);color:var(--onAcc)}
 /* spodní panel */
@@ -293,7 +305,7 @@ function defaultState() {
   const run = () => ({ id: uid(), kind: 'check', name: 'Běh 5 km', mins: 40 });
   const tpl = (id, opt) => ({ id: uid(), kind: 'tpl', tplId: id, optional: !!opt });
   return {
-    v: 1,
+    v: 1, coaches: [],
     templates: [zaver, silovy, gym, trialTpl()],
     week: [
       [run(), tpl('zaver')],
@@ -376,6 +388,11 @@ function okWEx(x) {
 }
 const FEELS = { good: 'Skvěle', ok: 'Normálně', hard: 'Těžce' };
 const okFeel = f => f == null || f === 'good' || f === 'ok' || f === 'hard';
+// nálada (v2.5): nové volitelné pole `mood`; staré `feel` zůstává beze změny a jen se zobrazí jako nálada
+const MOODS = { joy: 'Skvělé', sweat: 'Ufff', dead: 'Smrt' };
+const MOOD_OLD = { good: 'joy', hard: 'sweat', ok: 'ok' };
+const okMood = m => m == null || Object.prototype.hasOwnProperty.call(MOODS, m);
+const okFx = x => isObj(x) && okMood(x.mood) && optStr(x.note) && optStr(x.coach);
 function validState(d) {
   try {
     if (!isObj(d) || d.v !== 1) return false;
@@ -390,10 +407,11 @@ function validState(d) {
       if (r.supps != null && (!isObj(r.supps) || !Object.entries(r.supps).every(([id, x]) => okId(id) && isObj(x) && typeof x.taken === 'boolean' && isNum(x.dose) && x.dose >= 0 && (x.unit === 'g' || x.unit === 'ks') && typeof x.name === 'string'))) return false;
       if ((r.reason != null && !['nemoc', 'osobni', 'prace', 'jine'].includes(r.reason)) || !optStr(r.reasonNote) || (r.reasonSkip != null && typeof r.reasonSkip !== 'boolean')) return false;
       if (r.items != null && !okDay(r.items)) return false;
+      if (r.fx != null && (!isObj(r.fx) || !Object.entries(r.fx).every(([id, x]) => okId(id) && okFx(x)))) return false;
     }
     if (!isArr(d.workouts) || !d.workouts.every(w => isObj(w) && okId(w.id) && okId(w.tplId) && (w.itemId == null || okId(w.itemId))
       && okDate(w.date) && isNum(w.start) && isNum(w.end) && (w.breakMs == null || (isNum(w.breakMs) && w.breakMs >= 0 && w.breakMs <= w.end - w.start)) && isArr(w.ex) && w.ex.every(okWEx)
-      && okFeel(w.feel) && optStr(w.note) && optStr(w.tplName))) return false;
+      && okFeel(w.feel) && okMood(w.mood) && optStr(w.coach) && optStr(w.note) && optStr(w.tplName))) return false;
     if (d.supps != null && !(isArr(d.supps) && d.supps.every(okSupp))) return false;
     if (d.metrics != null && !(isArr(d.metrics) && d.metrics.every(m => isObj(m) && okId(m.key) && typeof m.name === 'string' && optStr(m.unit)))) return false;
     if (d.measures != null && !(isArr(d.measures) && d.measures.every(m => isObj(m) && okId(m.id) && okId(m.metric) && okDate(m.date) && isNum(m.value) && (m.session == null || okId(m.session))))) return false;
@@ -410,15 +428,16 @@ function validState(d) {
       if (((a.phase === 'work' && kind === 'time') || a.phase === 'rest') && !(isNum(a.deadline) || (a.paused && isNum(a.left)))) return false;
       if (a.phase === 'work' && kind === 'reps' && (!isNum(a.setStart) || a.deadline != null || a.paused)) return false;
       if (a.sideSecs != null && !(isArr(a.sideSecs) && a.sideSecs.every(isNum))) return false;
-      if (!okId(a.w.id) || !okFeel(a.w.feel) || !optStr(a.w.note) || (a.w.itemId != null && !okId(a.w.itemId))) return false;
+      if (!okId(a.w.id) || !okFeel(a.w.feel) || !okMood(a.w.mood) || !optStr(a.w.coach) || !optStr(a.w.note) || (a.w.itemId != null && !okId(a.w.itemId))) return false;
     }
     if (d.settings != null && !isObj(d.settings)) return false;
+    if (d.coaches != null && !(isArr(d.coaches) && d.coaches.every(n => typeof n === 'string'))) return false;
     return true;
   } catch (e) { return false; }
 }
 function normalize(d) {
   if (!d.templates.some(t => t.id === TRIAL)) d.templates.push(trialTpl());
-  d.days = d.days || {}; d.metrics = d.metrics || defaultMetrics(); d.measures = d.measures || []; d.supps = d.supps || [];
+  d.days = d.days || {}; d.metrics = d.metrics || defaultMetrics(); d.measures = d.measures || []; d.supps = d.supps || []; d.coaches = d.coaches || [];
   d.settings = Object.assign({ sound: true, lastBackup: null, hideInstall: false }, d.settings || {});
   // settings.autoNext / autoStart ze starších verzí se ponechávají, ale nepoužívají — nic se nespouští samo (rozhodnutí Terezy)
   if (d.active === undefined) d.active = null;
@@ -431,7 +450,7 @@ function save() {
   try {
     // jiné okno mezitím zapsalo: nepřepisuj ho, načti jeho data
     const cur = localStorage.getItem(KEY);
-    if (cur !== lastRaw) { load(); toast('Data se změnila v jiném okně — načteno znovu'); setTimeout(() => { if (S.active && $('#run').innerHTML) renderRun(); else render(); }, 0); return false; }
+    if (cur !== lastRaw) { load(); fbStale(); toast('Data se změnila v jiném okně — načteno znovu'); setTimeout(() => { if (S.active && $('#run').innerHTML) renderRun(); else render(); }, 0); return false; }
     const raw = JSON.stringify(S); localStorage.setItem(KEY, raw); lastRaw = raw;
     if (saveFailed) { saveFailed = false; renderBanner(); } return true;
   }
@@ -450,7 +469,7 @@ try { navigator.storage && navigator.storage.persist && navigator.storage.persis
 // druhé okno appky: převezmi jeho změny místo přepsání
 window.addEventListener('storage', e => {
   if (e.key !== KEY) return;
-  load();
+  load(); fbStale();
   if (S.active && $('#run').innerHTML) renderRun(); else { if (!S.active && $('#run').innerHTML) closeRun(); render(); }
 });
 
@@ -497,7 +516,27 @@ function sheetEditDay(k) {
 // popisek mimořádné položky: navíc / z jiného dne / místo jiné sestavy
 // aktivita bez průvodce (běh, MMA, plavání…): název, délka, vzdálenost, poznámka
 const actTxt = it => [isNum(it.mins) ? it.mins + ' min' : '', isNum(it.km) ? fmtNum(it.km) + ' km' : '', it.note ? esc(it.note) : ''].filter(Boolean).join(' · ');
-const actForm = (it = {}, withOpt = false) => `<label class="fld"><span>Název</span><input class="inp" id="aName" maxlength="40" placeholder="např. Běh, MMA s trenérem, Plavání" value="${esc(it.name || '')}"></label>
+// dříve použité aktivity (rozvrh + historie): podle četnosti; it = poslední výskyt
+function actHist() {
+  const m = new Map();
+  const add = (it, k) => { if (!it || it.kind !== 'check' || typeof it.name !== 'string' || !it.name.trim()) return; const key = fold(it.name.trim()); const o = m.get(key) || { name: it.name.trim(), n: 0, k: '', it }; o.n++; if (k >= o.k) { o.k = k; o.it = it; o.name = it.name.trim(); } m.set(key, o); };
+  S.week.forEach(d => d.forEach(it => add(it, '')));
+  for (const [k, r] of Object.entries(S.days)) (r.items || []).forEach(it => add(it, k));
+  return [...m.values()].sort((a, b) => b.n - a.n || a.name.localeCompare(b.name, 'cs'));
+}
+const actPills = cur => { const h = actHist().slice(0, 200); return h.length ? `<div class="pills" id="aPills" style="margin:-4px 0 12px">${h.map((o, i) => `<button class="pill ap ${fold(o.name) === fold(cur) ? 'on' : ''}" data-a="actPick" data-v="${esc(o.name)}" data-n="${esc(fold(o.name))}"${i >= 12 ? ' style="display:none"' : ''}>${AI(o.name)}${esc(o.name)}</button>`).join('')}</div>` : ''; };
+// zobrazí nejvýš 12 návrhů odpovídajících dotazu (bez dotazu nejčastější)
+function actFilter(q) { let n = 0; document.querySelectorAll('#aPills .pill').forEach(el => { const ok = (!q || el.dataset.n.includes(q)) && n < 12; if (ok) n++; el.style.display = ok ? '' : 'none'; el.classList.toggle('on', !!q && el.dataset.n === q); }); }
+// poslední trenér u stejně pojmenované aktivity: string = trenér, null = minule bez trenéra, undefined = žádná historie
+function lastCoachFor(name, k0, id0) {
+  const key = fold(String(name).trim());
+  for (const k of Object.keys(S.days).filter(k => okDate(k) && k <= k0).sort().reverse()) {
+    const r = S.days[k]; if (!r.fx) continue;
+    for (const it of r.items || dayItems(k)) { if (it.kind !== 'check' || (k === k0 && it.id === id0) || fold(String(it.name).trim()) !== key) continue; const x = r.fx[it.id]; if (x) return x.coach != null ? x.coach : null; }
+  }
+  return undefined;
+}
+const actForm = (it = {}, withOpt = false) => `<label class="fld"><span>Název</span><input class="inp" id="aName" maxlength="40" autocomplete="off" placeholder="např. Běh, MMA s trenérem, Plavání" value="${esc(it.name || '')}"></label>${actPills(it.name)}
   <div style="display:flex;gap:8px"><label class="fld" style="flex:1"><span>Délka (min)</span><input class="inp" id="aMins" type="number" inputmode="numeric" value="${isNum(it.mins) ? it.mins : ''}"></label><label class="fld" style="flex:1"><span>Vzdálenost (km)</span><input class="inp" id="aKm" type="text" inputmode="decimal" value="${isNum(it.km) ? fmtNum(it.km) : ''}"></label></div>
   <label class="fld"><span>Poznámka (nepovinné)</span><input class="inp" id="aNote" maxlength="60" placeholder="např. lehké tempo" value="${esc(it.note || '')}"></label>
   ${withOpt ? `<div class="surf" style="margin-top:12px"><label class="row tgl"><span class="grow">Volitelné</span><input type="checkbox" switch id="dOpt" ${it.optional ? 'checked' : ''}></label></div>` : ''}`;
@@ -644,7 +683,7 @@ function viewDay() {
         const tp = it.kind === 'ex' ? { items: [it.ex] } : tplById(it.tplId);
         const w = S.workouts.filter(w => w.date === selDay && w.itemId === it.id).slice(-1)[0];
         if (tp && !done && !firstTpl && selDay === t) firstTpl = it; // trénink se zapisuje jen do dneška (podle skutečnosti)
-        const sub = [it.kind === 'ex' ? exSummary(it.ex) : tp ? tp.items.length + ' cviků' : '', itemSub(it), it.optional ? 'volitelně' : '', w ? (done ? 'hotovo za ' : 'částečně, ') + fmtDur(wDur(w)) : ''].filter(Boolean).join(' · ');
+        const sub = [it.kind === 'ex' ? exSummary(it.ex) : tp ? tp.items.length + ' cviků' : '', itemSub(it), it.optional ? 'volitelně' : '', w ? (done ? 'hotovo za ' : 'částečně, ') + fmtDur(wDur(w)) : '', w && done && moodOf(w) ? MI(moodOf(w)) + ' ' + moodLbl(moodOf(w)) : ''].filter(Boolean).join(' · ');
         h += `<div class="row"><button class="grow" data-a="dDetail" data-v="${selDay}:${it.id}" style="text-align:left"><div class="head">${esc(itemLabel(it))}</div><div class="foot">${sub}</div></button>
           ${w && canResume(w) && !done ? `<button class="b3" data-a="resumeW" data-v="${w.id}" style="padding-right:0">Pokračovat ${I('r')}</button>` : done ? `<span class="check on">${I('check')}</span>` : tp && selDay === t && (it !== firstTpl || S.active) ? `<button class="b3" data-a="start" data-v="${it.id}" style="padding-right:0">${w ? 'Znovu' : 'Začít'} ${I('r')}</button>` : ''}</div>`;
         const lw = it.kind === 'tpl' && lastWorkoutFor(it.tplId, selDay);
@@ -652,6 +691,7 @@ function viewDay() {
       } else {
         const sub = [actTxt(it), itemSub(it), it.optional ? 'volitelně' : ''].filter(Boolean).join(' · ');
         if (selDay > t) h += `<div class="row"><span class="grow"><span class="head" style="display:block">${esc(it.name)}</span><span class="foot">${sub || 'aktivita'}</span></span></div>`; // budoucnost se nepotvrzuje
+        else if (done) h += `<div class="row"><button class="grow" data-a="actFb" data-v="${selDay}:${it.id}" style="text-align:left"><span class="head" style="display:block">${esc(it.name)}</span><span class="foot">${[sub, fbLine((r.fx || {})[it.id]) || '<span class="acc">+ jak to šlo</span>'].filter(Boolean).join(' · ')}</span></button><button data-a="tick" data-v="${it.id}" aria-label="Zrušit splnění" style="padding:6px 0 6px 12px"><span class="check on">${I('check')}</span></button></div>`;
         else h += `<button class="row" data-a="tick" data-v="${it.id}"><span class="grow"><span class="head" style="display:block">${esc(it.name)}</span><span class="foot">${sub || (selDay < t ? 'klepni, pokud proběhlo' : 'klepni, až bude hotovo')}</span></span><span class="check ${done ? 'on' : ''}">${done ? I('check') : ''}</span></button>`;
       }
     }
@@ -676,7 +716,7 @@ function viewDay() {
   return h;
 }
 function workoutCard(w) {
-  let h = `<div class="surf"><div class="row"><div class="grow"><div class="head">${esc(w.tplName)}</div><div class="foot">${splitTxt(w)}</div>${w.feel || w.note ? `<div class="foot">${[w.feel ? FEELS[w.feel] : '', w.note ? '„' + esc(w.note) + '“' : ''].filter(Boolean).join(' · ')}</div>` : ''}</div><span class="foot num">${fmtDur(wDur(w))}</span></div>`;
+  let h = `<div class="surf"><div class="row"><button class="grow" data-a="wFb" data-v="${w.id}" style="text-align:left"><div class="head">${esc(w.tplName)}</div><div class="foot">${splitTxt(w)}</div><div class="foot">${fbLine(w, 300) || '<span class="acc">+ jak to šlo</span>'}</div></button><span class="foot num">${fmtDur(wDur(w))}</span></div>`;
   if (canResume(w)) h += `<button class="row" data-a="resumeW" data-v="${w.id}"><span class="grow head acc">Pokračovat v tréninku</span>${I('r', 'chev')}</button>`;
   h += '<div class="sub" style="padding:0 16px 8px"><table>';
   for (const e of w.ex) {
@@ -705,6 +745,22 @@ const ACT_KW = [['run', ['beh', 'run', 'jogg', 'sprint']], ['walk', ['chuz', 'pr
   ['racket', ['tenis', 'squash', 'badminton', 'padel', 'ping']], ['gym', ['posil', 'gym', 'crossfit', 'fitness', 'kruhov']], ['ski', ['lyz', 'ski', 'snowboard', 'bezk']]];
 const fold = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 const actIcon = name => { const n = fold(name); const hit = ACT_KW.find(([, kws]) => kws.some(k => n.includes(k))); return hit ? hit[0] : 'other'; };
+const MOOD_IC = {
+  joy: circ(12, 12, 9) + 'M8 10.2q1-1.4 2 0M14 10.2q1-1.4 2 0M7.8 13.6h8.4a4.2 4.2 0 0 1-8.4 0z',
+  sweat: circ(11, 13, 8) + 'M7.6 11.4h2.4M12.4 11.4h2.4M8 16.6q1.4-1.3 2.8 0t2.8 0M20 2.5c-1.1 1.6-1.7 2.6-1.7 3.3a1.7 1.7 0 0 0 3.4 0c0-.7-.6-1.7-1.7-3.3z',
+  dead: circ(12, 12, 9) + 'M7.6 8.6l2.6 2.6M10.2 8.6l-2.6 2.6M13.8 8.6l2.6 2.6M16.4 8.6l-2.6 2.6M8.5 15.2h7M12.3 15.2v1.6a1.6 1.6 0 0 0 3.2 0v-1.6',
+  ok: circ(12, 12, 9) + 'M9 10h.01M15 10h.01M9 15h6'
+};
+const moodOf = o => !o ? null : o.mood && okMood(o.mood) ? o.mood : MOOD_OLD[o.feel] || null;
+const moodLbl = m => m === 'ok' ? 'Normálně' : MOODS[m] || '';
+const MI = (m, cls = 'mi') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${MOOD_IC[m]}"/></svg>`;
+// krátký řádek: nálada · trenér · poznámka (HTML)
+function fbLine(o, noteLen = 40) {
+  if (!o) return '';
+  const m = moodOf(o), n = o.note ? (o.note.length > noteLen ? o.note.slice(0, noteLen - 1) + '…' : o.note) : '';
+  return [m ? MI(m) + ' ' + moodLbl(m) : '', o.coach != null ? 'trenér' + (o.coach ? ': ' + esc(o.coach) : '') : '', n ? '„' + esc(n) + '“' : ''].filter(Boolean).join(' · ');
+}
+const coachTxtOf = o => o && o.coach != null ? 'trenér' + (o.coach ? ': ' + o.coach : '') : '';
 const AI = (name, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ACT_IC[actIcon(name)]}"/></svg>`;
 const fmtMin = ms => { const m = Math.round(ms / 60000); return m >= 60 ? Math.floor(m / 60) + ' h' + (m % 60 ? ' ' + (m % 60) + ' min' : '') : m + ' min'; };
 const pace = it => isNum(it.mins) && isNum(it.km) && it.km > 0 ? (s => Math.floor(s / 60) + ':' + pad(s % 60) + '/km')(Math.round(it.mins * 60 / it.km)) : '';
@@ -817,7 +873,7 @@ function viewProg() {
 function sheetProgDay(k) {
   const x = dayData(k), r = S.days[k] || {};
   let h = sheetHead(fmtDayShort(k), ['closeSheet', 'Zavřít']) + `<div class="foot" style="margin:0 4px 12px">${(t => t.charAt(0).toUpperCase() + t.slice(1))(statusText[x.st] || '')}${reasonTxt(r) ? ' · ' + esc(reasonTxt(r)) : ''}${x.work ? ' · ' + fmtMin(x.work) + ' cvičení · ' + fmtMin(x.rest) + ' pauzy' : ''}</div>`;
-  if (x.acts.length) h += `<div class="surf list">${x.acts.map(a => `<div class="row">${AI(a.name, 'acc')}<span class="grow"><span class="head" style="display:block">${esc(a.name)}</span>${actTxt(a) || pace(a) ? `<span class="foot">${[actTxt(a), pace(a)].filter(Boolean).join(' · ')}</span>` : ''}</span></div>`).join('')}</div>`;
+  if (x.acts.length) h += `<div class="surf list">${x.acts.map(a => `<div class="row">${AI(a.name, 'acc')}<span class="grow"><span class="head" style="display:block">${esc(a.name)}</span>${actTxt(a) || pace(a) || fbLine((r.fx || {})[a.id]) ? `<span class="foot">${[actTxt(a), pace(a), fbLine((r.fx || {})[a.id], 300)].filter(Boolean).join(' · ')}</span>` : ''}</span></div>`).join('')}</div>`;
   for (const w of x.ws) h += workoutCard(w);
   if (!x.acts.length && !x.ws.length) h += `<div class="empty">${k > today() ? 'Tento den teprve přijde.' : 'V tento den žádný záznam.'}</div>`;
   sheet(h);
@@ -846,21 +902,26 @@ const fmtRange = (a, b) => { const A = parseKey(a), B = parseKey(b); if (A.getFu
 // obsah souhrnu (bez InBody a měření — ty budou mít vlastní export)
 function coachModel(a, b) {
   const t = today(), days = [];
-  let planned = 0, doneN = 0, work = 0, rest = 0; const acts = Object.create(null);
+  let planned = 0, doneN = 0, work = 0, rest = 0; const acts = Object.create(null), moods = Object.create(null);
   for (let k = a, g = 0; k <= b && g < 40; k = dkey(addDays(parseKey(k), 1)), g++) {
     const x = dayData(k), r = S.days[k] || {}; if (k > t && !x.ws.length) continue;
     if (x.plan || x.st === 'done') planned++; if (x.st === 'done') doneN++; work += x.work; rest += x.rest;
     const rows = [];
     for (const w of x.ws) {
       const tot = wDur(w), wk = Math.min(tot, workMs(w));
-      rows.push({ t: 'sub', l: w.tplName || 'Trénink', r: [fmtMin(tot), w.feel ? FEELS[w.feel] : ''].filter(Boolean).join(' · ') });
+      const m = moodOf(w); if (m) moods[m] = (moods[m] || 0) + 1;
+      rows.push({ t: 'sub', l: w.tplName || 'Trénink', r: [fmtMin(tot), moodLbl(m)].filter(Boolean).join(' · '), mood: m });
+      if (coachTxtOf(w)) rows.push({ t: 'supp', l: coachTxtOf(w) });
       rows.push({ t: 'bar', work: wk, rest: tot - wk });
       for (const e of w.ex) if (e.sets.length || !e.trial) rows.push({ t: 'ex', l: e.name, r: setsShort(e), dim: !e.sets.length });
       if (w.note) rows.push({ t: 'note', l: '„' + w.note + '“' });
     }
     for (const it of x.acts) {
-      rows.push({ t: 'act', icon: actIcon(it.name), l: [it.name, isNum(it.mins) ? it.mins + ' min' : '', isNum(it.km) ? fmtNum(it.km) + ' km' : '', pace(it)].filter(Boolean).join(' · ') });
+      const fx = (r.fx || {})[it.id], m = moodOf(fx); if (m) moods[m] = (moods[m] || 0) + 1;
+      rows.push({ t: 'act', icon: actIcon(it.name), l: [it.name, isNum(it.mins) ? it.mins + ' min' : '', isNum(it.km) ? fmtNum(it.km) + ' km' : '', pace(it), moodLbl(m)].filter(Boolean).join(' · '), mood: m });
+      if (coachTxtOf(fx)) rows.push({ t: 'supp', l: coachTxtOf(fx) });
       if (it.note) rows.push({ t: 'note', l: it.note });
+      if (fx && fx.note) rows.push({ t: 'note', l: '„' + fx.note + '“' });
       const key = it.name.trim(), o = acts[key] || (acts[key] = { name: key, n: 0, km: 0 }); o.n++; if (isNum(it.km)) o.km += it.km;
     }
     const sl = k <= t ? suppsFor(k) : [], sr = r.supps || {};
@@ -871,8 +932,8 @@ function coachModel(a, b) {
     else if (!x.ws.length && !x.acts.length) state = x.st === 'none' ? '' : 'volno';
     days.push({ k, head, state, bad: x.st === 'missed' && !x.ws.length && !x.acts.length, rows });
   }
-  const al = Object.values(acts);
-  return { title: S.settings.name ? S.settings.name + ' · trénink' : 'Trénink', period: fmtRange(a, b), line: [doneN + '/' + planned + ' dní splněno', work ? 'cvičení ' + fmtMin(work) + ', pauzy ' + fmtMin(rest) : '', al.length ? 'aktivity: ' + actsSum(al) : ''].filter(Boolean).join(' · '), sum: [[doneN + '/' + planned, 'dní splněno'], [fmtMin(work), 'cvičení'], [fmtMin(rest), 'pauzy']], acts: al.length ? 'Aktivity: ' + actsSum(al) : '', days };
+  const al = Object.values(acts), ml = ['joy', 'sweat', 'dead', 'ok'].filter(k => moods[k]).map(k => moods[k] + '× ' + moodLbl(k)).join(', '), mt = ml ? 'Nálada: ' + ml : '';
+  return { title: S.settings.name ? S.settings.name + ' · trénink' : 'Trénink', period: fmtRange(a, b), line: [doneN + '/' + planned + ' dní splněno', work ? 'cvičení ' + fmtMin(work) + ', pauzy ' + fmtMin(rest) : '', al.length ? 'aktivity: ' + actsSum(al) : '', ml ? 'nálada: ' + ml : ''].filter(Boolean).join(' · '), sum: [[doneN + '/' + planned, 'dní splněno'], [fmtMin(work), 'cvičení'], [fmtMin(rest), 'pauzy']], acts: [al.length ? 'Aktivity: ' + actsSum(al) : '', mt].filter(Boolean).join(' · '), days };
 }
 function coachText(m) {
   const L = [m.title + ' · ' + m.period, m.line, ''];
@@ -894,6 +955,7 @@ const CW = 1080, CX = 64, FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Tex
 const CC = { bg: '#0b0c0f', s1: '#16181d', s2: '#202329', tx: '#f5f5f7', tx2: '#9a9ca4', tx3: '#63666e', acc: '#c6f432', rest: '#5aa9ff', bad: '#ff5c5c', sep: 'rgba(255,255,255,.1)' };
 function fit(ctx, s, w) { if (ctx.measureText(s).width <= w) return s; while (s.length > 1 && ctx.measureText(s + '…').width > w) s = s.slice(0, -1); return s + '…'; }
 function wrap(ctx, s, w) { const out = []; let line = ''; for (const word of String(s).split(/\s+/)) { const tst = line ? line + ' ' + word : word; if (ctx.measureText(tst).width > w && line) { out.push(line); line = word; } else line = tst; } if (line) out.push(line); return out.slice(0, 6); }
+function moodDraw(c, m, x, y) { c.save(); c.translate(x, y); c.scale(1.5, 1.5); c.strokeStyle = CC.acc; c.lineWidth = 1.6; c.lineCap = 'round'; c.lineJoin = 'round'; c.stroke(new Path2D(MOOD_IC[m])); c.restore(); }
 // blok = { h, draw(ctx, y) }
 function coachBlocks(ctx, m) {
   const B = [], W = CW - 2 * CX;
@@ -905,10 +967,10 @@ function coachBlocks(ctx, m) {
     let first = true; const add = (hh, fn) => { B.push({ h: hh, draw: fn, keep: first }); first = false; };
     add(84, (c, y) => { c.strokeStyle = CC.sep; c.lineWidth = 2; c.beginPath(); c.moveTo(CX, y + 2); c.lineTo(CW - CX, y + 2); c.stroke(); c.font = '600 40px ' + FONT; c.fillStyle = d.bad ? CC.tx2 : CC.tx; let x = CX; if (d.bad) { c.fillStyle = CC.bad; c.beginPath(); c.arc(CX + 9, y + 56, 9, 0, 7); c.fill(); x += 30; c.fillStyle = CC.tx2; } c.fillText(d.head, x, y + 68); if (d.state) { c.font = '400 34px ' + FONT; c.fillStyle = CC.tx2; const s = fit(c, d.state, W - 300); c.textAlign = 'right'; c.fillText(s, CW - CX, y + 68); c.textAlign = 'left'; } });
     for (const r of d.rows) {
-      if (r.t === 'sub') add(58, (c, y) => { c.font = '600 34px ' + FONT; c.fillStyle = CC.tx; c.fillText(fit(c, r.l, W - 330), CX, y + 44); c.font = '400 32px ' + FONT; c.fillStyle = CC.tx2; c.textAlign = 'right'; c.fillText(r.r, CW - CX, y + 44); c.textAlign = 'left'; });
+      if (r.t === 'sub') add(58, (c, y) => { c.font = '400 32px ' + FONT; const rx = CW - CX - (r.mood ? 48 : 0), rs = fit(c, r.r, W - 380), rw = c.measureText(rs).width; c.fillStyle = CC.tx2; c.textAlign = 'right'; c.fillText(rs, rx, y + 44); c.textAlign = 'left'; if (r.mood) moodDraw(c, r.mood, CW - CX - 36, y + 14); c.font = '600 34px ' + FONT; c.fillStyle = CC.tx; c.fillText(fit(c, r.l, Math.max(W - rw - (r.mood ? 48 : 0) - 32, 200)), CX, y + 44); });
       else if (r.t === 'bar') add(30, (c, y) => { const tot = r.work + r.rest || 1, ww = (W - 24) * r.work / tot; c.fillStyle = CC.acc; rr(c, CX + 24, y + 10, Math.max(ww, 6), 10, 5); c.fill(); if (r.rest) { c.globalAlpha = .55; c.fillStyle = CC.rest; rr(c, CX + 24 + ww + 4, y + 10, Math.max(W - 24 - ww - 4, 0), 10, 5); c.fill(); c.globalAlpha = 1; } });
       else if (r.t === 'ex') add(50, (c, y) => { c.font = '400 32px ' + FONT; c.fillStyle = r.dim ? CC.tx3 : CC.tx2; c.textAlign = 'right'; c.fillText(r.r, CW - CX, y + 38); const rw = c.measureText(r.r).width; c.textAlign = 'left'; c.fillStyle = r.dim ? CC.tx3 : CC.tx; c.fillText(fit(c, r.l, W - 24 - rw - 24), CX + 24, y + 38); });
-      else if (r.t === 'act') add(58, (c, y) => { c.save(); c.translate(CX + 22, y + 12); c.scale(1.5, 1.5); c.strokeStyle = CC.acc; c.lineWidth = 1.8; c.lineCap = 'round'; c.lineJoin = 'round'; c.stroke(new Path2D(ACT_IC[r.icon])); c.restore(); c.font = '400 34px ' + FONT; c.fillStyle = CC.tx; c.fillText(fit(c, r.l, W - 80), CX + 74, y + 42); });
+      else if (r.t === 'act') add(58, (c, y) => { c.save(); c.translate(CX + 22, y + 12); c.scale(1.5, 1.5); c.strokeStyle = CC.acc; c.lineWidth = 1.8; c.lineCap = 'round'; c.lineJoin = 'round'; c.stroke(new Path2D(ACT_IC[r.icon])); c.restore(); c.font = '400 34px ' + FONT; c.fillStyle = CC.tx; c.fillText(fit(c, r.l, W - 80 - (r.mood ? 48 : 0)), CX + 74, y + 42); if (r.mood) moodDraw(c, r.mood, CW - CX - 36, y + 12); });
       else { ctx.font = (r.t === 'note' ? 'italic ' : '') + '400 30px ' + FONT; const lines = wrap(ctx, r.l, W - 24); add(lines.length * 40 + 10, (c, y) => { c.font = (r.t === 'note' ? 'italic ' : '') + '400 30px ' + FONT; c.fillStyle = CC.tx2; lines.forEach((ln, j) => c.fillText(ln, CX + 24, y + 36 + j * 40)); }); }
     }
     B.push({ h: 18, draw: () => {} });
@@ -950,7 +1012,7 @@ async function sheetCoach() {
   h += `<label class="fld" style="margin-top:8px"><span>Jméno v hlavičce</span><input class="inp" id="cName" maxlength="30" placeholder="např. Tereza" value="${esc(S.settings.name || '')}"></label>`;
   h += `<button class="btn b1" data-a="coachShare" style="margin-top:12px">${I('share')} Sdílet obrázek</button>
     <button class="btn b2" data-a="coachShareText" style="margin-top:8px">Sdílet jako text</button>
-    <div class="foot" style="margin:10px 4px">Obsahuje tréninky, aktivity, poznámky, důvody nesplnění a suplementy. InBody a měření ne.</div>
+    <div class="foot" style="margin:10px 4px">Obsahuje tréninky, aktivity, nálady, trenéra, poznámky, důvody nesplnění a suplementy. InBody a měření ne.</div>
     <div class="cap" style="margin:16px 4px 0">Náhled</div><div id="cPrev" class="foot" style="margin:8px 4px">Připravuji náhled…</div>`;
   sheet(h); coachReset(); const gen = coachGen;
   const files = await coachImages(m); if (gen !== coachGen || !$('#cPrev')) return; // mezitím jiné období / zavřený panel
@@ -1113,7 +1175,53 @@ function viewPlan() {
 
 /* ---------- spodní panel ---------- */
 function sheet(html) { $('#sheet').innerHTML = `<div class="sheet-bg" data-a="closeSheetBg"><div class="sheet" role="dialog">${html}</div></div>`; }
-function closeSheet() { $('#sheet').innerHTML = ''; coachReset(); }
+/* ---------- Jak to šlo: nálada, trenér, poznámka (sestavy i aktivity) ---------- */
+let fbT = null, fbAuto = false, fbTouched = false, fbPop = null, fbTimer = 0, fbPre = null; // fbPre = navržený trenér, uloží se až s první změnou
+function fbRec(create) {
+  if (!fbT) return null;
+  if (fbT.t === 'run') return S.active ? S.active.w : null;
+  if (fbT.t === 'w') return S.workouts.find(w => w.id === fbT.id) || null;
+  const r = create ? dayRec(fbT.k) : S.days[fbT.k]; if (!r) return null;
+  if (!r.fx) { if (!create) return null; r.fx = {}; }
+  return r.fx[fbT.id] || (create ? (r.fx[fbT.id] = fbPre != null ? { coach: fbPre } : {}) : null);
+}
+function fbClean() {
+  if (!fbT || fbT.t !== 'act') return; const r = S.days[fbT.k]; if (!r || !r.fx) return;
+  const o = r.fx[fbT.id]; if (o && !o.mood && !o.note && o.coach === undefined) delete r.fx[fbT.id];
+  if (!Object.keys(r.fx).length) delete r.fx;
+}
+function fbFlushNote() { const el = $('#fbNote'); if (!el || !fbT || fbT.t === 'run') return; const v = el.value.trim().slice(0, 300); const o = fbRec(!!v); if (o) { if (v) o.note = v; else delete o.note; } }
+function coachRemember(n) { if (!n) return; S.coaches = [n].concat((S.coaches || []).filter(x => x !== n)).slice(0, 20); }
+function fbHTML(o, run = false) {
+  o = o || {}; const m = moodOf(o), on = o.coach != null, pop = fbPop, CO = S.coaches || []; fbPop = null;
+  let h = `<div class="moods">${Object.keys(MOODS).map(k => `<button class="${m === k ? 'on' : ''}${pop === k ? ' pop' : ''}" data-a="fbMood" data-v="${k}" aria-pressed="${m === k}">${MI(k, '')}<span>${MOODS[k]}</span></button>`).join('')}</div>`;
+  if (m === 'ok') h += '<div class="foot" style="margin-top:6px;text-align:center">dříve: Normálně</div>';
+  h += `<div class="surf" style="margin:12px 0 0;width:100%;text-align:left"><label class="row tgl"><span class="grow">S trenérem</span><input type="checkbox" switch data-a="fbCoach" ${on ? 'checked' : ''}></label>`;
+  if (on) h += `<div style="padding:0 16px 12px">${CO.length ? `<div class="pills">${CO.slice(0, 8).map(n => `<button class="pill ${o.coach === n ? 'on' : ''}" data-a="fbCoachName" data-v="${esc(n)}">${esc(n)}</button>`).join('')}</div>` : ''}<input class="inp" id="fbCoachIn" maxlength="30" placeholder="${CO.length ? 'Jiné jméno' : 'Jméno trenéra (nepovinné)'}" value="${CO.slice(0, 8).includes(o.coach) ? '' : esc(o.coach)}"></div>`;
+  h += '</div>' + (run ? `<textarea class="inp" id="rNote" maxlength="300" placeholder="Poznámka (nepovinné)" style="margin-top:8px" data-in="rNote">${esc(o.note || '')}</textarea>`
+    : `<textarea class="inp" id="fbNote" maxlength="300" placeholder="Poznámka (nepovinné)" style="margin-top:8px">${esc(o.note || '')}</textarea>`);
+  return h;
+}
+function openFb(t, auto) {
+  clearTimeout(fbTimer); fbT = t; fbAuto = auto; fbTouched = false;
+  fbPre = null;
+  if (t.t === 'act' && !(S.days[t.k]?.fx || {})[t.id]) { const it = dayItems(t.k).find(i => i.id === t.id);
+    if (it) { const lc = lastCoachFor(it.name, t.k, t.id); fbPre = lc !== undefined ? lc : /tren[eé]r/i.test(it.name) ? (S.coaches || [])[0] || '' : null; } }
+  sheetFb();
+}
+function fbRender() { if (!fbT) return; if (fbT.t === 'run') renderRun(); else { sheetFb(); render(); } }
+// data se změnila zvenku (jiné okno): zahodit časovače a panel postavit z nových dat, nic starého nezapisovat
+function fbStale() { clearTimeout(fbTimer); clearTimeout(window._fbn); if (fbT && fbT.t !== 'run' && $('#sheet').innerHTML) sheetFb(); }
+function sheetFb() {
+  let title, sub;
+  if (fbT.t === 'act') { const it = dayItems(fbT.k).find(i => i.id === fbT.id); if (!it) { fbT = null; return closeSheet(); } title = it.name; sub = [fmtDayShort(fbT.k), actTxt(it)].filter(Boolean).join(' · '); }
+  else { const w = S.workouts.find(x => x.id === fbT.id); if (!w) { fbT = null; return closeSheet(); } title = w.tplName || 'Trénink'; sub = fmtDayShort(w.date) + ' · ' + fmtDur(wDur(w)); }
+  sheet(sheetHead('Jak to šlo?', ['fbClose', 'Hotovo']) + `<div class="head" style="text-align:center">${esc(title)}</div><div class="foot" style="text-align:center">${esc(sub)}</div>` + fbHTML(fbRec(false) || (fbPre != null ? { coach: fbPre } : null)) + '<button class="btn b1" style="margin-top:16px" data-a="fbClose">Hotovo</button>');
+}
+function closeSheet() {
+  const fb = fbT && fbT.t !== 'run'; if (fb) { clearTimeout(fbTimer); clearTimeout(window._fbn); fbFlushNote(); fbClean(); fbT = null; }
+  $('#sheet').innerHTML = ''; coachReset(); if (fb) { save(); render(); }
+}
 const sheetHead = (title, left = ['closeSheet', 'Zavřít'], right = null) =>
   `<div class="sheet-h"><button class="b3" data-a="${left[0]}" ${left[2] ? `data-v="${left[2]}"` : ''}>${left[1]}</button><span class="head">${title}</span>${right ? `<button class="b3 acc" data-a="${right[0]}" ${right[2] ? `data-v="${right[2]}"` : ''}>${right[1]}</button>` : '<span class="b3"></span>'}</div>`;
 
@@ -1199,27 +1307,42 @@ document.addEventListener('click', ev => {
   const el = ev.target.closest('[data-a]'); if (!el) return;
   const a = el.dataset.a, v = el.dataset.v;
   if (a === 'closeSheetBg') { if (ev.target === el) closeSheet(); return; }
-  if (a === 'setSound' || a === 'setSilent' || a === 'setAuto' || a === 'progEx') return;
+  if (a === 'setSound' || a === 'setSilent' || a === 'setAuto' || a === 'progEx' || a === 'fbCoach') return;
   ev.preventDefault();
   unlockAudio();
   // akce průvodce (rXxx) bez běžícího tréninku (např. data změněná v jiném okně): jen zavři průvodce
   if (/^r[A-Z]/.test(a) && !S.active) { closeSheet(); if ($('#run').innerHTML) closeRun(); return; }
   const act = ACT[a]; if (act) act(v, el);
 });
+document.addEventListener('focusin', ev => { if (ev.target.id === 'fbNote' || ev.target.id === 'fbCoachIn') { fbTouched = true; clearTimeout(fbTimer); } });
 document.addEventListener('input', ev => {
   if (ev.target.id === 'exQ') { const q = ev.target.value.trim().toLowerCase(); document.querySelectorAll('#exList [data-n]').forEach(el => { el.style.display = !q || el.dataset.n.includes(q) ? '' : 'none'; }); }
   if (ev.target.id === 'tplName' && ev.target.type !== 'hidden') { const t = S.templates.find(x => x.id === ev.target.dataset.tid); if (t && ev.target.value.trim()) { t.name = ev.target.value.trim().slice(0, 80); clearTimeout(window._tn); window._tn = setTimeout(save, 500); } }
+  if (ev.target.id === 'aName') actFilter(fold(ev.target.value.trim()));
+  if (ev.target.id === 'fbCoachIn') { fbTouched = true; clearTimeout(fbTimer); }
+  if (ev.target.id === 'fbNote') { fbTouched = true; clearTimeout(fbTimer); clearTimeout(window._fbn); window._fbn = setTimeout(() => { fbFlushNote(); save(); }, 600); }
   if (ev.target.dataset.in === 'rNote' && S.active) { S.active.w.note = ev.target.value.slice(0, 300) || undefined; clearTimeout(window._nt); window._nt = setTimeout(save, 600); }
 });
 document.addEventListener('change', ev => {
   const el = ev.target; const a = el.dataset.a;
   if (a === 'progEx') { progEx = el.value; render(); }
+  if (a === 'fbCoach') { const o = fbRec(true); if (o) { clearTimeout(window._fbn); fbFlushNote(); if (el.checked) o.coach = fbPre || (S.coaches || [])[0] || ''; else o.coach = null; fbTouched = true; clearTimeout(fbTimer); fbClean(); if (save()) fbRender(); } }
+  if (el.id === 'fbCoachIn') { const o = fbRec(true); if (o) { const n = el.value.trim().slice(0, 30); o.coach = n; coachRemember(n); fbTouched = true; save(); } }
   if (a === 'setSound') { S.settings.sound = el.checked; save(); }
   if (a === 'setSilent') { S.settings.soundSilent = el.checked; save(); unlockAudio(); }
   if (el.id === 'cName') { const n = el.value.trim().slice(0, 30); if (n) S.settings.name = n; else delete S.settings.name; save(); (curSum === 'health' ? sheetHealth : sheetCoach)(); }
   if ((el.id === 'cFrom' || el.id === 'cTo') && okDate(el.value)) { const P = curSum === 'health' ? healthP : coachP; if (P) { P[el.id === 'cFrom' ? 'from' : 'to'] = el.value; (curSum === 'health' ? sheetHealth : sheetCoach)(); } }
 });
 const ACT = {
+  fbMood: v => { const o = fbRec(true); if (!o || !okMood(v)) return; clearTimeout(window._fbn); fbFlushNote(); if (o.mood === v) delete o.mood; else { o.mood = v; fbPop = v; } fbClean(); if (!save()) return; fbRender();
+    clearTimeout(fbTimer); const tg = fbT; if (tg && tg.t === 'act' && fbAuto && !fbTouched && o.mood) fbTimer = setTimeout(() => { if (fbT === tg && !fbTouched) closeSheet(); }, 700); },
+  fbCoachName: v => { const o = fbRec(true); if (!o) return; clearTimeout(window._fbn); fbFlushNote(); o.coach = v; coachRemember(v); fbTouched = true; clearTimeout(fbTimer); if (!save()) return; fbRender(); },
+  fbClose: () => closeSheet(),
+  actPick: v => { const el = $('#aName'); if (!el) return; el.value = v; const h = actHist().find(o => fold(o.name) === fold(v));
+    if (h) { const m = $('#aMins'), k = $('#aKm'); if (m && !m.value && isNum(h.it.mins)) m.value = h.it.mins; if (k && !k.value && isNum(h.it.km)) k.value = fmtNum(h.it.km); }
+    actFilter(''); document.querySelectorAll('#aPills .pill').forEach(p => p.classList.toggle('on', p.dataset.v === v)); },
+  actFb: v => { const [k, id] = v.split(':'); openFb({ t: 'act', k, id }, false); },
+  wFb: v => openFb({ t: 'w', id: v }, false),
   tab: v => { tab = v; window.scrollTo(0, 0); render(); },
   wk: v => { selDay = dkey(addDays(parseKey(selDay), +v)); render(); },
   day: v => { selDay = v; render(); },
@@ -1311,7 +1434,7 @@ const ACT = {
   reasonSet: v => { const [k, why] = v.split(':'); if (!REASONS[why]) return; commit(() => { const r = dayRec(k); r.reason = why; delete r.reasonNote; delete r.reasonSkip; if (r.manual === 'missed') delete r.manual; }); closeSheet(); render(); setTimeout(askReason, 300); },
   reasonSave: v => { const t = ($('#rsNote').value || '').trim().slice(0, 80); commit(() => { const r = dayRec(v); r.reason = 'jine'; if (t) r.reasonNote = t; else delete r.reasonNote; delete r.reasonSkip; if (r.manual === 'missed') delete r.manual; }); closeSheet(); render(); setTimeout(askReason, 300); },
   reasonLater: () => { commit(() => { for (let k = pendingReason(), g = 0; k && g < 8; k = pendingReason(), g++) dayRec(k).reasonSkip = true; }); closeSheet(); render(); }, // „Teď ne“ = neptat se na tyto dny (důvod jde doplnit v dni)
-  tick: v => { if (selDay > today()) return; const r = dayRec(selDay); r.done = r.done || {}; r.done[v] = !r.done[v]; if (!r.done[v]) delete r.done[v]; if (r.done[v]) { delete r.reason; delete r.reasonNote; delete r.reasonSkip; if (r.manual === 'missed') delete r.manual; } save(); render(); },
+  tick: v => { if (selDay > today()) return; const r = dayRec(selDay); r.done = r.done || {}; r.done[v] = !r.done[v]; if (!r.done[v]) delete r.done[v]; if (r.done[v]) { delete r.reason; delete r.reasonNote; delete r.reasonSkip; if (r.manual === 'missed') delete r.manual; } const ok = save(); render(); if (ok && r.done[v] && selDay === today()) openFb({ t: 'act', k: selDay, id: v }, true); },
   start: v => {
     if (selDay !== today()) return;
     const it = dayItems(selDay).find(i => i.id === v); if (!it || it.kind === 'check') return;
@@ -1566,7 +1689,7 @@ function endSignal(kind) {
 }
 
 function openRun() { requestWake(); for (let g = 0; g < 200 && A() && A().deadline && A().deadline <= Date.now(); g++) expire(Date.now()); if (!A()) return; checkStale(); renderRun(); clearInterval(tickT); tickT = setInterval(tick, 250); }
-function closeRun() { clearInterval(tickT); tickT = null; releaseWake(); $('#run').innerHTML = ''; render(); }
+function closeRun() { if (fbT && fbT.t === 'run') fbT = null; clearInterval(tickT); tickT = null; releaseWake(); $('#run').innerHTML = ''; render(); }
 const totalSides = e => e.kind === 'time' && e.perSide ? 2 : 1;
 function lastActivity(w) { let t = w.start; for (const x of w.ex) for (const s of x.sets) if (s.end > t) t = s.end; return t; }
 
@@ -1768,10 +1891,11 @@ function renderRun() {
   const nextEx = w.ex.find((y, k) => k > a.i && y.sets.length < y.plan.sets && !y.skipped);
   const nextTxt = `<div class="next">${nextEx ? 'Potom: ' + esc(nextEx.name) : 'Poslední cvik'}</div>`;
   if (a.phase === 'end') {
+    fbT = { t: 'run' };
+    if (!a.fbInit) { a.fbInit = true; if (w.coach == null) { const lw = S.workouts.filter(x => x.tplId === w.tplId && x.coach !== undefined).slice(-1)[0]; if (lw) w.coach = lw.coach; else if (/tren[eé]r/i.test(w.tplName || '')) w.coach = (S.coaches || [])[0] || ''; } }
     const sets = w.ex.reduce((s, y) => s + y.sets.length, 0);
     main = `<h1 class="large">Hotovo.</h1><div class="num" style="font-size:64px;font-weight:700;letter-spacing:-.03em;margin:8px 0">${fmtDur(wDur(w, a.endedAt || Date.now()))}</div><div class="foot">${pl(w.ex.filter(y => y.sets.length).length, 'cvik', 'cviky', 'cviků')} · ${pl(sets, 'série', 'série', 'sérií')}</div><div class="head" style="margin-top:8px">${splitTxt(w, a.endedAt || Date.now())}</div>
-      <div class="feel">${Object.entries(FEELS).map(([k, l]) => `<button class="${w.feel === k ? 'on' : ''}" data-a="rFeel" data-v="${k}">${l}</button>`).join('')}</div>
-      <textarea class="inp" id="rNote" maxlength="300" placeholder="Poznámka (nepovinné)" style="margin-top:8px" data-in="rNote">${esc(w.note || '')}</textarea>`;
+      ${fbHTML(w, true)}`;
     const tried = w.ex.filter(y => y.trial && y.sets.length && tplById(TRIAL)?.items.some(e => e.id === y.id));
     if (tried.length) main += `<div class="foot" style="margin-top:12px">Vyzkoušela jsi: ${tried.map(y => esc(y.name)).join(', ')}. Rozhodneš po uložení v Plán → Vyzkoušet.</div>`;
     bot = `<button class="btn b1" data-a="rFinish">Uložit trénink</button><div class="btns" style="justify-content:center"><button class="b3" data-a="rList">Zpět k cvikům</button></div>`;
@@ -1885,7 +2009,6 @@ Object.assign(ACT, {
   rEndKeep: () => endNow(true),
   rEndDrop: () => endNow(false),
   rDiscard: () => { if (!confirm(A() && A().resumed ? 'Zahodit pokračování? Dříve uložená část zůstane.' : 'Opravdu zahodit? Nic se neuloží.')) return; S.active = null; save(); closeSheet(); closeRun(); },
-  rFeel: v => { const a = A(); a.w.feel = a.w.feel === v ? undefined : v; save(); renderRun(); },
   rFinish: () => saveWorkout(),
   rSaveStale: () => { const a = A(); saveWorkout(a.endedAt || Math.max(lastActivity(a.w), a.readyAt || 0, a.setStart || 0)); },
 });
