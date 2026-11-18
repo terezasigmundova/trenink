@@ -149,6 +149,9 @@ svg.i.mi{width:16px;height:16px;stroke-width:1.8;vertical-align:-3px}
 .mv-main img,.mv-main video{max-width:100%;max-height:100%;object-fit:contain}
 .mv-cap{padding:10px 16px 0;color:var(--tx2);font-size:15px;min-height:24px}
 .mv-bot{display:flex;justify-content:space-between;align-items:center;padding:8px 16px 0}
+.sh-prev{display:flex;gap:8px;justify-content:center;margin:0 0 12px}.sh-prev img{width:46%;aspect-ratio:9/16;border-radius:14px;background:var(--s2);object-fit:cover;box-shadow:0 0 0 1px var(--sep)}.sh-prev img.one{width:62%}
+.shph{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 6px;margin-bottom:8px}.shph .mth,.shph .shno{width:64px;height:64px;border-radius:12px;flex:none}
+.shph .on{box-shadow:0 0 0 3px var(--acc)}.shno{background:var(--s2);color:var(--tx2);font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;text-align:center;line-height:1.1}
 .pill.ap{display:inline-flex;align-items:center;gap:6px}.pill.ap svg.i{width:16px;height:16px;stroke-width:1.8}
 .feel button{flex:1;min-height:56px;border-radius:var(--r-md);background:var(--s2);font-weight:600;color:var(--tx2)}
 .feel button.on{background:var(--acc);color:var(--onAcc)}
@@ -727,6 +730,7 @@ function viewDay() {
   else if (firstTpl && !S.active) h += `<button class="btn b1" style="margin-top:16px" data-a="start" data-v="${firstTpl.id}">${I('play')} Začít trénink</button>`;
   if (selDay > t) h += items.length || r.custom ? `<button class="btn b1" style="margin-top:16px" data-a="dEdit" data-v="${selDay}">Upravit trénink</button>` : `<button class="btn b1" style="margin-top:16px" data-a="dAdd" data-v="${selDay}:ex">${I('plus')} Přidat trénink</button>`;
   else if (selDay === t) h += `<div class="btns" style="justify-content:center"><button class="b3" data-a="dEdit" data-v="${selDay}">Upravit dnešek</button></div>`;
+  if (selDay <= t && dayHasDone(selDay)) h += `<button class="btn b2" style="margin-top:12px" data-a="shareDay" data-v="${selDay}">${I('share')} Sdílet den</button>`;
   const trT = tplById(TRIAL);
   const trN = trT ? trT.items.filter(e => !e.parked).length : 0;
   if (trN && !S.active && selDay === t && !items.some(i => i.kind === 'tpl' && i.tplId === TRIAL))
@@ -902,6 +906,7 @@ function sheetProgDay(k) {
   if (x.acts.length) h += `<div class="surf list">${x.acts.map(a => `<div class="row">${AI(a.name, 'acc')}<span class="grow"><span class="head" style="display:block">${esc(a.name)}</span>${actTxt(a) || pace(a) || fbLine((r.fx || {})[a.id]) ? `<span class="foot">${[actTxt(a), pace(a), fbLine((r.fx || {})[a.id], 300)].filter(Boolean).join(' · ')}</span>` : ''}</span></div>`).join('')}</div>`;
   for (const w of x.ws) h += workoutCard(w);
   if (!x.acts.length && !x.ws.length) h += `<div class="empty">${k > today() ? 'Tento den teprve přijde.' : 'V tento den žádný záznam.'}</div>`;
+  else h += `<button class="btn b2" style="margin-top:12px" data-a="shareDay" data-v="${k}">${I('share')} Sdílet den</button>`;
   sheet(h);
 }
 
@@ -1512,9 +1517,138 @@ async function zipShare() {
     S.settings.lastBackup = Date.now(); save(); closeSheet(); render(); toast('Záloha uložena');
   } catch (e) { if (e.name !== 'AbortError') toast('Zálohu se nepodařilo uložit'); }
 }
+/* ---------- Sdílet můj den: obrázek 1080 × 1920 pro přátele (jen datum, bez jména) ---------- */
+const DW = 1080, DH = 1920, DX = 72, SHARE_TXT = 60;
+const dayHasDone = k => { const x = dayData(k); return !!(x.ws.length || x.acts.length); };
+let shareP = null, shareFiles = [], shareUrls = [], shareGen = 0, shareT = 0;
+const shareTxt = Object.create(null); // vlastní věta ke dni, jen dokud je appka otevřená
+function shareReset() { shareGen++; clearTimeout(shareT); shareUrls.forEach(u => URL.revokeObjectURL(u)); shareUrls = []; shareFiles = []; shareP = null; }
+// cviky, u kterých dnešní nejlepší série překonala všechny předchozí tréninky
+function dayRecIds(k) {
+  const before = Object.create(null), day = Object.create(null), out = new Set();
+  for (const w of S.workouts) { if (w.date > k) continue; const T = w.date === k ? day : before;
+    for (const e of w.ex) { let top = 0; for (const st of e.sets) { const sc = e.kind === 'time' ? (st.secs || 0) : (st.load || 0) * 1000 + (st.reps || 0); if (sc > top) top = sc; } if (top && (T[e.id] == null || top > T[e.id])) T[e.id] = top; } }
+  for (const id in day) if (before[id] != null && day[id] > before[id]) out.add(id);
+  return out;
+}
+function shareModel(k, p) {
+  const x0 = dayData(k), x = Object.assign({}, x0, { acts: p.act ? x0.acts : [] }), r = S.days[k] || {}, recs = dayRecIds(k), fx = it => (r.fx || {})[it.id];
+  const text = (shareTxt[k] || '').trim().slice(0, SHARE_TXT), cap = text ? 7 : 10; // řádků, které se vejdou nad rámeček
+  const coachOf = o => p.coach && o && o.coach != null ? (p.coachName && o.coach ? 'trenér: ' + o.coach : 's trenérem') : '';
+  const actMin = x.acts.reduce((a, it) => a + (isNum(it.mins) ? it.mins : 0), 0), tot = x.ws.reduce((a, w) => a + wDur(w), 0) + actMin * 60000;
+  const exs = []; x.ws.forEach(w => w.ex.forEach(e => { if (!e.sets.length) return; exs.push({ e, w, work: exWork(e), load: Math.max(0, ...e.sets.map(st => st.load || 0)), rec: recs.has(e.id) }); }));
+  const mw = Math.max(1, ...exs.map(o => o.work)), ml = Math.max(1, ...exs.map(o => o.load)), sc = o => o.work / mw + o.load / ml + (o.rec ? 2 : 0);
+  // výtah: cviky s nejvíc časem a zátěží (rekord dne vždy), nejvýš 5 a jen kolik se vejde (hlavičky, aktivity a souhrnný řádek mají přednost)
+  const nAct = Math.min(2, x.acts.length) + (x.acts.length > 2 ? 1 : 0), room = Math.max(0, cap - (p.ex ? x.ws.length : 0) - nAct - 1);
+  const top = new Set(exs.slice().sort((a, b) => sc(b) - sc(a)).slice(0, Math.min(5, room)));
+  const rows = [], full = [];
+  if (p.ex && x.ws.length) {
+    for (const w of x.ws) {
+      const h = { t: 'h', l: [w.tplName || 'Trénink', coachOf(w)].filter(Boolean).join(' · '), r: fmtMin(wDur(w)) }; rows.push(h); full.push(h);
+      if (x.ws.length < 3) exs.filter(o => o.w === w && top.has(o)).sort((a, b) => sc(b) - sc(a)).forEach(o => rows.push({ t: 'ex', l: o.e.name, r: setsShort(o.e) + (o.rec ? ' · rekord' : ''), rec: o.rec }));
+      exs.filter(o => o.w === w).forEach(o => full.push({ t: 'ex', l: o.e.name, r: setsShort(o.e), rec: o.rec }));
+    }
+    const hid = x.ws.length < 3 ? exs.filter(o => !top.has(o)) : exs;
+    if (hid.length) rows.push({ t: 'more', l: '+ ' + pl(hid.length, 'další cvik', 'další cviky', 'dalších cviků') + ' · ' + pl(hid.reduce((a, o) => a + o.e.sets.length, 0), 'série', 'série', 'sérií') });
+  }
+  {
+    x.acts.forEach((it, i) => { const row = { t: 'act', icon: actIcon(it.name), l: [it.name, coachOf(fx(it))].filter(Boolean).join(' · '), r: [isNum(it.km) ? fmtNum(it.km) + ' km' : '', isNum(it.mins) ? it.mins + ' min' : ''].filter(Boolean).join(' · ') }; if (i < 2) rows.push(row); full.push(row); });
+    if (x.acts.length > 2) rows.push({ t: 'more', l: '+ ' + pl(x.acts.length - 2, 'další aktivita', 'další aktivity', 'dalších aktivit') });
+  }
+  const names = x.ws.map(w => w.tplName || 'Trénink').concat(x.acts.map(it => it.name)), km = x.acts.reduce((a, it) => a + (isNum(it.km) ? it.km : 0), 0);
+  const nth = S.workouts.filter(w => w.date <= k).length, wr = k >= dkey(monday(new Date())) ? weeksInRow() : 0, md = moodDays(k, k).m[k];
+  const stats = [x.ws.length ? [pl(x.ws.length, 'sestava', 'sestavy', 'sestav'), x.acts.length ? '+ ' + x.acts.map(it => it.name).join(', ') : fmtMin(x.work) + ' čisté cvičení'] : [pl(x.acts.length, 'aktivita', 'aktivity', 'aktivit'), names.join(', ')]];
+  if (wr) stats.push([wr + '.', 'týden v řadě']);
+  if (x.ws.length) stats.push([nth + '.', 'trénink']); else if (km) stats.push([fmtNum(km) + ' km', 'vzdálenost']);
+  if (stats.length < 3 && p.mood && md) stats.push([moodLbl(md), 'nálada']);
+  const A = parseKey(k), dn = ['NE', 'PO', 'ÚT', 'ST', 'ČT', 'PÁ', 'SO'][A.getDay()];
+  return { k, date: dn + ' ' + A.getDate() + '. ' + (A.getMonth() + 1) + '.', big: fmtMin(tot), bigSub: k === today() ? 'na pohybu dnes' : 'na pohybu', mood: p.mood ? md : null, icon: x.acts.length && !x.ws.length ? actIcon(x.acts[0].name) : 'gym', stats: stats.slice(0, 3), rows, full, text };
+}
+function drawIcon(c, d, x, y, size, lw) { c.save(); c.translate(x, y); c.scale(size / 24, size / 24); c.strokeStyle = CC.acc; c.lineWidth = lw; c.lineCap = 'round'; c.lineJoin = 'round'; c.stroke(new Path2D(d)); c.restore(); }
+function shareRows(c, rows, y0, yMax) {
+  let y = y0, W = DW - 2 * DX;
+  for (const r of rows) {
+    if (y + 56 > yMax) break;
+    c.textAlign = 'left';
+    if (r.t === 'h') { c.font = '400 30px ' + FONT; const rw = c.measureText(r.r).width; c.fillStyle = CC.tx2; c.textAlign = 'right'; c.fillText(r.r, DW - DX, y + 42); c.textAlign = 'left'; c.font = '600 36px ' + FONT; c.fillStyle = CC.tx; c.fillText(fit(c, r.l, W - rw - 30), DX, y + 42); }
+    else if (r.t === 'ex') { c.font = '400 32px ' + FONT; const rw = c.measureText(r.r).width; c.fillStyle = r.rec ? CC.acc : CC.tx2; c.textAlign = 'right'; c.fillText(r.r, DW - DX, y + 40); c.textAlign = 'left'; let xx = DX; if (r.rec) { c.fillStyle = CC.acc; c.beginPath(); c.arc(DX + 7, y + 29, 7, 0, 7); c.fill(); xx += 28; } c.fillStyle = CC.tx; c.fillText(fit(c, r.l, W - rw - 30 - (xx - DX)), xx, y + 40); }
+    else if (r.t === 'act') { drawIcon(c, ACT_IC[r.icon], DX, y + 7, 42, 1.8); c.font = '400 32px ' + FONT; const rw = r.r ? c.measureText(r.r).width : 0; c.fillStyle = CC.tx2; c.textAlign = 'right'; if (r.r) c.fillText(r.r, DW - DX, y + 40); c.textAlign = 'left'; c.fillStyle = CC.tx; c.fillText(fit(c, r.l, W - 58 - rw - 30), DX + 58, y + 40); }
+    else { c.font = '400 30px ' + FONT; c.fillStyle = CC.tx2; c.fillText(fit(c, r.l, W), DX, y + 40); }
+    y += 56;
+  }
+  return y;
+}
+const toBlobP = c => new Promise(res => c.toBlob(b => res(b), 'image/png'));
+async function shareDraw(m, photo) {
+  const c = document.createElement('canvas'); c.width = DW; c.height = DH; const x = c.getContext('2d'), PH = 1000, W = DW - 2 * DX;
+  x.fillStyle = CC.bg; x.fillRect(0, 0, DW, DH);
+  let drawn = false;
+  if (photo) { let bm = null; try { bm = await loadBitmap(photo); const pw = bm.width || bm.naturalWidth, ph = bm.height || bm.naturalHeight, k = Math.max(DW / pw, PH / ph); x.save(); x.beginPath(); x.rect(0, 0, DW, PH); x.clip(); x.drawImage(bm, (DW - pw * k) / 2, (PH - ph * k) / 2, pw * k, ph * k); x.restore(); drawn = true;
+    const g = x.createLinearGradient(0, 0, 0, PH); g.addColorStop(0, 'rgba(11,12,15,.55)'); g.addColorStop(.2, 'rgba(11,12,15,0)'); g.addColorStop(.5, 'rgba(11,12,15,0)'); g.addColorStop(1, CC.bg); x.fillStyle = g; x.fillRect(0, 0, DW, PH + 1); } catch (e) { drawn = false; } finally { if (bm && bm.close) bm.close(); } }
+  if (!drawn) { x.globalAlpha = .9; drawIcon(x, ACT_IC[m.icon] || ACT_IC.other, DW / 2 - 180, 290, 360, 1.2); x.globalAlpha = 1; }
+  x.font = '600 30px ' + FONT; x.fillStyle = '#d4d6dc'; if ('letterSpacing' in x) x.letterSpacing = '3px'; x.fillText(m.date, DX, 180); if ('letterSpacing' in x) x.letterSpacing = '0px';
+  if (m.mood) drawIcon(x, MOOD_IC[m.mood], DW - DX - 64, 132, 64, 1.6);
+  x.fillStyle = CC.acc; x.font = '700 200px ' + FONT; let bs = 200; while (x.measureText(m.big).width > W && bs > 100) { bs -= 10; x.font = '700 ' + bs + 'px ' + FONT; } x.fillText(m.big, DX - 6, 900);
+  x.font = '400 34px ' + FONT; x.fillStyle = CC.tx2; x.fillText(m.bigSub, DX, 952);
+  const n = m.stats.length, cw = W / Math.max(1, n);
+  m.stats.forEach(([b, l], i) => { const cx = DX + i * cw + (i ? 28 : 0), iw = cw - (i ? 28 : 0) - 12; if (i) { x.fillStyle = CC.sep; x.fillRect(DX + i * cw, 1012, 2, 92); } x.fillStyle = CC.tx; x.font = '700 56px ' + FONT; x.fillText(fit(x, b, iw), cx, 1062); x.fillStyle = CC.tx2; x.font = '400 28px ' + FONT; x.fillText(fit(x, l, iw), cx, 1100); });
+  const hecY = 1612; shareRows(x, m.rows, 1160, m.text ? hecY - 12 : 1720);
+  if (m.text) { x.font = '600 40px ' + FONT; const lines = wrap(x, m.text, W - 60).slice(0, 2); const bh = 40 + lines.length * 52; x.strokeStyle = CC.acc; x.lineWidth = 2; rr(x, DX, hecY, W, bh, 28); x.stroke(); x.fillStyle = CC.tx; lines.forEach((ln, j) => x.fillText(fit(x, ln, W - 60), DX + 30, hecY + 62 + j * 52)); }
+  x.textAlign = 'center'; x.font = '400 24px ' + FONT; x.fillStyle = CC.tx3; x.fillText('trénink', DW / 2, 1800); x.textAlign = 'left';
+  const b1 = await toBlobP(c); c.width = c.height = 1; return b1;
+}
+async function shareDrawFull(m) {
+  const c = document.createElement('canvas'); c.width = DW; c.height = DH; const x = c.getContext('2d');
+  x.fillStyle = CC.bg; x.fillRect(0, 0, DW, DH);
+  x.font = '600 30px ' + FONT; x.fillStyle = '#d4d6dc'; x.fillText(m.date + '  ·  ROZPIS', DX, 180);
+  const rows = m.full.length > 24 ? m.full.slice(0, 23).concat([{ t: 'more', l: '+ ' + (m.full.length - 23) + ' dalších' }]) : m.full;
+  shareRows(x, rows, 230, 1700);
+  x.textAlign = 'center'; x.font = '400 24px ' + FONT; x.fillStyle = CC.tx3; x.fillText('trénink', DW / 2, 1800); x.textAlign = 'left';
+  const b = await toBlobP(c); c.width = c.height = 1; return b;
+}
+async function dayImgs(k) { const ids = mediaAll().filter(x => x.k === k).map(x => x.id), out = []; for (const id of ids) { try { const r = await mGet(id); if (r && r.kind === 'img') out.push(id); } catch (e) {} } return out; }
+let shareBusy = false, shareAgain = false;
+function shareStale() { shareGen++; shareFiles = []; const b = $('#shGo'); if (b) b.disabled = true; }
+async function shareBuild() {
+  const p = shareP; if (!p) return; shareStale(); if (shareBusy) { shareAgain = true; return; }
+  shareBusy = true; const g = shareGen;
+  try {
+    let photo = null; if (p.photo && p.photo !== 'none') { const r = await mGet(p.photo).catch(() => null); if (r && r.kind === 'img') photo = r.blob; }
+    if (g !== shareGen) return; const m = shareModel(p.k, p), blobs = [await shareDraw(m, photo)]; if (g !== shareGen) return; if (p.full && m.full.length) blobs.push(await shareDrawFull(m));
+    if (g !== shareGen || shareP !== p) return;
+    if (blobs.some(b => !b)) throw new Error('blob');
+    shareUrls.forEach(u => URL.revokeObjectURL(u)); shareUrls = blobs.map(b => URL.createObjectURL(b));
+    shareFiles = blobs.map((b, i) => new File([b], 'muj-den-' + p.k + (i ? '-rozpis' : '') + '.png', { type: 'image/png' }));
+    const box = $('#shPrev'); if (box) box.innerHTML = shareUrls.map(u => `<img src="${u}" class="${shareUrls.length === 1 ? 'one' : ''}" alt="Náhled obrázku">`).join('');
+    const b2 = $('#shGo'); if (b2) b2.disabled = false;
+  } catch (e) { if (g === shareGen) toast('Obrázek se nepodařilo vytvořit'); }
+  finally { shareBusy = false; if (shareAgain && shareP) { shareAgain = false; shareBuild(); } }
+}
+async function sheetShare(k) {
+  const o = { ex: true, act: true, mood: true, coach: false, full: false }, so = isObj(S.settings.shareOpts) ? S.settings.shareOpts : {};
+  for (const key of Object.keys(o)) if (typeof so[key] === 'boolean') o[key] = so[key];
+  const imgs = await dayImgs(k);
+  if (!shareP || shareP.k !== k) { shareReset(); shareP = Object.assign(o, { k, coachName: false, photo: imgs[0] || 'none' }); }
+  const p = shareP, t = shareTxt[k] || '';
+  const tg = (id, l, on, sub = '') => `<label class="row tgl"><span class="grow">${l}${sub ? `<span class="foot" style="display:block">${sub}</span>` : ''}</span><input type="checkbox" switch id="${id}" ${on ? 'checked' : ''}></label>`;
+  let h = sheetHead('Sdílet den', ['closeSheet', 'Zavřít']) + `<div class="sh-prev" id="shPrev"><img class="one" alt=""></div>`;
+  h += `<button class="btn b1" id="shGo" data-a="shShare" disabled>${I('share')} Sdílet</button>`;
+  h += `<label class="fld" style="margin-top:14px"><span>Tvoje hecovací věta <b id="shCnt" class="num" style="float:right;font-weight:500">${t.length} / ${SHARE_TXT}</b></span><input class="inp" id="shTxt" maxlength="${SHARE_TXT}" autocomplete="off" placeholder="např. Bylo to na smrt. Tvůj tah." value="${esc(t)}"></label><div class="foot" style="margin:-4px 4px 12px">Nejvýš ${SHARE_TXT} znaků (2 řádky). Prázdné = bez rámečku.</div>`;
+  if (imgs.length) h += `<div class="cap" style="margin:4px 4px 8px">Momentka</div><div class="shph">${imgs.map(id => `<button class="mth ${p.photo === id ? 'on' : ''}" data-a="shPhoto" data-v="${id}"><img data-mid="${id}" alt=""></button>`).join('')}<button class="shno ${p.photo === 'none' ? 'on' : ''}" data-a="shPhoto" data-v="none">Bez fotky</button></div>`;
+  h += `<div class="surf">${tg('shEx', 'Cviky', p.ex, 'výtah: nejvíc času a zátěže, nejvýš 5')}${tg('shAct', 'Aktivity', p.act)}${tg('shMood', 'Nálada', p.mood)}${tg('shCoach', 'Trenér', p.coach, 'jen „s trenérem“')}${p.coach ? tg('shCoachName', 'Ukázat jméno trenéra', p.coachName) : ''}${tg('shFull', 'Celý rozpis jako 2. obrázek', p.full)}</div>`;
+  h += '<div class="foot" style="margin:10px 4px">Na obrázku je jen datum. Poznámky, suplementy, měření ani důvody nesplnění se nikdy nesdílí.</div>';
+  sheet(h); shareBuild();
+}
+async function shareGo() {
+  if (!shareFiles.length || shareBusy) return toast('Obrázek se ještě připravuje');
+  try {
+    if (navigator.canShare && navigator.canShare({ files: shareFiles })) await navigator.share({ files: shareFiles });
+    else toast('Sdílení tu nejde — podrž obrázek v náhledu a dej Uložit');
+  } catch (e) { if (e.name !== 'AbortError') toast('Sdílení se nepovedlo — podrž obrázek a dej Uložit'); }
+}
 function closeSheet() {
   const fb = fbT && fbT.t !== 'run'; if (fb) { clearTimeout(fbTimer); clearTimeout(window._fbn); fbFlushNote(); fbClean(); fbT = null; }
-  $('#sheet').innerHTML = ''; coachReset(); if (fb) { save(); render(); }
+  $('#sheet').innerHTML = ''; coachReset(); if (shareP) shareReset(); if (fb) { save(); render(); }
 }
 const sheetHead = (title, left = ['closeSheet', 'Zavřít'], right = null) =>
   `<div class="sheet-h"><button class="b3" data-a="${left[0]}" ${left[2] ? `data-v="${left[2]}"` : ''}>${left[1]}</button><span class="head">${title}</span>${right ? `<button class="b3 acc" data-a="${right[0]}" ${right[2] ? `data-v="${right[2]}"` : ''}>${right[1]}</button>` : '<span class="b3"></span>'}</div>`;
@@ -1612,6 +1746,7 @@ document.addEventListener('focusin', ev => { if (ev.target.id === 'fbNote' || ev
 document.addEventListener('input', ev => {
   if (ev.target.id === 'exQ') { const q = ev.target.value.trim().toLowerCase(); document.querySelectorAll('#exList [data-n]').forEach(el => { el.style.display = !q || el.dataset.n.includes(q) ? '' : 'none'; }); }
   if (ev.target.id === 'tplName' && ev.target.type !== 'hidden') { const t = S.templates.find(x => x.id === ev.target.dataset.tid); if (t && ev.target.value.trim()) { t.name = ev.target.value.trim().slice(0, 80); clearTimeout(window._tn); window._tn = setTimeout(save, 500); } }
+  if (ev.target.id === 'shTxt' && shareP) { const v = ev.target.value.slice(0, SHARE_TXT); shareTxt[shareP.k] = v; const cn = $('#shCnt'); if (cn) cn.textContent = v.length + ' / ' + SHARE_TXT; shareStale(); clearTimeout(shareT); shareT = setTimeout(shareBuild, 450); }
   if (ev.target.id === 'aName') actFilter(fold(ev.target.value.trim()));
   if (ev.target.id === 'fbCoachIn') { fbTouched = true; clearTimeout(fbTimer); }
   if (ev.target.id === 'fbNote') { fbTouched = true; clearTimeout(fbTimer); clearTimeout(window._fbn); window._fbn = setTimeout(() => { fbFlushNote(); save(); }, 600); }
@@ -1620,6 +1755,9 @@ document.addEventListener('input', ev => {
 document.addEventListener('change', ev => {
   const el = ev.target; const a = el.dataset.a;
   if (a === 'progEx') { progEx = el.value; render(); }
+  if (/^sh(Ex|Act|Mood|Coach|CoachName|Full)$/.test(el.id) && shareP) { const key = { shEx: 'ex', shAct: 'act', shMood: 'mood', shCoach: 'coach', shCoachName: 'coachName', shFull: 'full' }[el.id]; shareP[key] = el.checked; if (key === 'coach' && !el.checked) shareP.coachName = false;
+    if (key !== 'coachName') { S.settings.shareOpts = { ex: shareP.ex, act: shareP.act, mood: shareP.mood, coach: shareP.coach, full: shareP.full }; save(); }
+    if (key === 'coach') sheetShare(shareP.k); else shareBuild(); }
   if (el.id === 'mIn') { const fs = [...(el.files || [])]; el.value = ''; mediaAdd(fs); }
   if (a === 'pCoachTg') { const w = $('#pCoachW'); if (w) w.style.display = el.checked ? '' : 'none'; }
   if (a === 'fbCoach') { const o = fbRec(true); if (o) { clearTimeout(window._fbn); fbFlushNote(); if (el.checked) o.coach = fbPre || (S.coaches || [])[0] || ''; else o.coach = null; fbTouched = true; clearTimeout(fbTimer); fbClean(); if (save()) fbRender(); } }
@@ -1634,6 +1772,9 @@ const ACT = {
     clearTimeout(fbTimer); const tg = fbT; if (tg && tg.t === 'act' && fbAuto && !fbTouched && o.mood) fbTimer = setTimeout(() => { if (fbT === tg && !fbTouched) closeSheet(); }, 700); },
   fbCoachName: v => { const o = fbRec(true); if (!o) return; clearTimeout(window._fbn); fbFlushNote(); o.coach = v; coachRemember(v); fbTouched = true; clearTimeout(fbTimer); if (!save()) return; fbRender(); },
   fbClose: () => closeSheet(),
+  shareDay: v => { if (!okDate(v) || !dayHasDone(v)) return; shareReset(); sheetShare(v); },
+  shPhoto: v => { if (!shareP) return; shareP.photo = v === 'none' || okId(v) ? v : 'none'; document.querySelectorAll('.shph [data-a="shPhoto"]').forEach(b => b.classList.toggle('on', b.dataset.v === shareP.photo)); shareBuild(); },
+  shShare: () => shareGo(),
   mView: (v, el) => { const box = el && el.closest('[data-ml]'), list = box ? box.dataset.ml.split(',').filter(okId) : [v]; mv = { list: list.includes(v) ? list : [v], i: Math.max(0, list.indexOf(v)) }; mvShow(); },
   mvClose: () => mvClose(),
   mvNav: v => { if (!mv) return; const j = mv.i + +v; if (j >= 0 && j < mv.list.length) { mv.i = j; mvShow(); } },
